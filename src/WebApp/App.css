@@ -1,0 +1,865 @@
+/* ==========================================
+   LingoDesk Design System — Light Theme
+   Color: Indigo → Purple gradient
+   ========================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-main: #f5f7fb;
+  --bg-card: #ffffff;
+  --bg-input: #f0f2f8;
+  --bg-hover: #eef0f8;
+  --text-primary: #1e1e2e;
+  --text-secondary: #5a5a72;
+  --text-muted: #9090a8;
+  --accent-indigo: #4f46e5;
+  --accent-purple: #7c3aed;
+  --accent-blue: #3b82f6;
+  --gradient-main: linear-gradient(135deg, #4f46e5, #7c3aed);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 12px 35px rgba(0, 0, 0, 0.12);
+  --radius-card: 20px;
+  --radius-btn: 14px;
+  --radius-badge: 9999px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ==========================================
+   Container
+   ========================================== */
+.lingodesk-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(79, 70, 229, 0.06), transparent 60%),
+    radial-gradient(ellipse at 80% 100%, rgba(124, 58, 237, 0.04), transparent 60%),
+    var(--bg-main);
+}
+
+/* ==========================================
+   Header
+   ========================================== */
+.lingodesk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: var(--gradient-main);
+  border-radius: 11px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.logo-icon.small {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.lingodesk-header h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: linear-gradient(to right, var(--accent-indigo), var(--accent-purple));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ==========================================
+   Usage Bar
+   ========================================== */
+.usage-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.usage-bar {
+  width: 70px;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-badge);
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: var(--radius-badge);
+  transition: width 0.5s ease, background-color 0.5s ease;
+}
+
+.usage-text {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ==========================================
+   Buttons: Settings, Back, Toggle
+   ========================================== */
+.settings-btn,
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-btn);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.2s;
+}
+
+.settings-btn:hover,
+.back-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mode-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-badge);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mode-toggle-btn:hover {
+  background: var(--bg-hover);
+}
+
+.mode-toggle-btn.active {
+  background: rgba(79, 70, 229, 0.1);
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+}
+
+/* ==========================================
+   Main Content
+   ========================================== */
+.lingodesk-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+}
+
+.canvas-card {
+  width: 100%;
+  max-width: 700px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.canvas-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.canvas-header h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================
+   Model Selector (Dropdown)
+   ========================================== */
+.model-selector {
+  position: relative;
+}
+
+.model-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(79, 70, 229, 0.06);
+  border: 1px solid rgba(79, 70, 229, 0.15);
+  border-radius: var(--radius-badge);
+  color: var(--accent-indigo);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.model-selector-btn:hover {
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.model-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 280px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  z-index: 200;
+  padding: 6px;
+}
+
+.model-dropdown-loading {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.model-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.model-option:hover {
+  background: var(--bg-hover);
+}
+
+.model-option.active {
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--accent-indigo);
+  font-weight: 600;
+}
+
+.model-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-option-rpd {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* ==========================================
+   Input Area
+   ========================================== */
+.input-workspace {
+  padding: 0;
+}
+
+.main-textarea {
+  width: 100%;
+  min-height: 160px;
+  padding: 20px 24px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.92rem;
+  line-height: 1.8;
+  resize: vertical;
+  outline: none;
+}
+
+.main-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* ==========================================
+   Action Panel & Buttons
+   ========================================== */
+.action-panel {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.panel-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+.button-group {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.action-btn {
+  display: flex;
+  flex: 1;
+  max-width: 220px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  transition: all 0.25s;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.action-btn small {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.action-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.words-btn:hover:not(:disabled) {
+  background: rgba(79, 70, 229, 0.06);
+  border-color: rgba(79, 70, 229, 0.3);
+  color: var(--accent-indigo);
+}
+
+.tutor-btn:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.06);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: var(--accent-purple);
+}
+
+.reading-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--accent-blue);
+}
+
+/* ==========================================
+   Settings Form
+   ========================================== */
+.settings-card {
+  max-width: 520px;
+}
+
+.settings-form {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-hint {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.form-hint a {
+  color: var(--accent-indigo);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.form-hint a:hover {
+  text-decoration: underline;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.api-input,
+.model-select,
+.limit-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'Inter', monospace;
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.api-input:focus,
+.model-select:focus,
+.limit-input:focus {
+  border-color: var(--accent-indigo);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+
+.toggle-btn {
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  background: var(--bg-hover);
+}
+
+.save-btn {
+  width: 100%;
+  padding: 13px;
+  background: var(--gradient-main);
+  border: none;
+  border-radius: var(--radius-btn);
+  color: white;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  letter-spacing: 0.02em;
+}
+
+.save-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3);
+}
+
+.settings-status {
+  text-align: center;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.settings-status.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+.settings-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+/* ==========================================
+   Result View
+   ========================================== */
+.result-header {
+  padding: 10px 20px;
+}
+
+.source-preview {
+  padding: 8px 24px;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  background: var(--bg-card);
+}
+
+/* Voice Selector */
+.voice-select {
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  max-width: 180px;
+  outline: none;
+}
+
+/* Speak Button & Icons */
+.line-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--accent-indigo);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 6px;
+  margin-right: 10px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35);
+}
+
+.line-speak-btn:hover {
+  transform: scale(1.1);
+  background: var(--accent-purple);
+  box-shadow: 0 3px 10px rgba(124, 58, 237, 0.4);
+}
+
+.line-speak-btn.loading {
+  animation: spin 1s linear infinite;
+  opacity: 0.7;
+}
+
+.icon-volume {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.result-hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 12px 0;
+}
+
+.result-h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--accent-indigo);
+  margin: 12px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid rgba(79, 70, 229, 0.12);
+}
+
+.result-blockquote {
+  border-left: 3px solid var(--accent-indigo);
+  background: rgba(79, 70, 229, 0.04);
+  padding: 10px 14px;
+  margin: 6px 0;
+  border-radius: 0 10px 10px 0;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.tutor-line {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 4px;
+}
+
+.section-header {
+  display: inline-block;
+  padding: 2px 10px;
+  background: rgba(79, 70, 229, 0.06);
+  border-left: 3px solid var(--accent-indigo);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-indigo);
+  margin: 8px 0 4px;
+  letter-spacing: 0.04em;
+}
+
+.bullet-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.bullet-dot {
+  color: var(--accent-indigo);
+  font-weight: bold;
+}
+
+/* Audio Loading Overlay */
+.audio-loading-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none;
+  /* 下の要素を触れるように */
+}
+
+.loader-box {
+  background: var(--bg-card);
+  padding: 12px 20px;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  pointer-events: auto;
+  /* ボックスのみイベントを受け取る */
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+.spacer {
+  height: 12px;
+}
+
+.tip {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.06);
+  border-radius: 8px;
+  margin: 5px 0;
+  font-size: 0.82rem;
+  color: #b45309;
+}
+
+.tip-icon {
+  flex-shrink: 0;
+}
+
+.bullet-item {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 0.88rem;
+}
+
+.bullet-dot {
+  color: var(--accent-indigo);
+  flex-shrink: 0;
+}
+
+.usage-example {
+  display: flex;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(124, 58, 237, 0.04);
+  border-radius: 8px;
+  margin: 3px 0;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.usage-mark {
+  color: var(--accent-purple);
+  flex-shrink: 0;
+}
+
+.arrow-line {
+  padding: 2px 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.numbered-item {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.num {
+  color: var(--accent-indigo);
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 18px;
+}
+
+.text-line {
+  padding: 2px 0;
+}
+
+.spacer {
+  height: 6px;
+}
+
+.chunk-slash {
+  color: var(--accent-purple);
+  font-weight: 700;
+  margin: 0 2px;
+  opacity: 0.6;
+}
+
+.phrase {
+  color: var(--accent-purple);
+}
+
+.inline-code {
+  background: rgba(79, 70, 229, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--accent-indigo);
+}
+
+/* ==========================================
+   Footer
+   ========================================== */
+.lingodesk-footer {
+  text-align: center;
+  padding: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.footer-glow {
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+/* ==========================================
+   Responsive
+   ========================================== */
+@media (max-width: 640px) {
+  .button-group {
+    grid-template-columns: 1fr;
+  }
+
+  .lingodesk-header {
+    padding: 10px 14px;
+  }
+
+  .canvas-card {
+    border-radius: 14px;
+  }
+
+  .result-main {
+    padding: 14px;
+  }
+
+  .header-right {
+    gap: 8px;
+  }
+
+  .voice-select {
+    max-width: 120px;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
