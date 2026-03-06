@@ -1,5 +1,5 @@
 /// <reference types="chrome" />
-import { SYSTEM_PROMPT } from '../lib/gemini';
+import { SYSTEM_PROMPT, getPacificDateString } from '../lib/gemini';
 
 const MENU_ID = "gemini-english-tutor-analyze";
 
@@ -340,21 +340,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const targetTabId = sender.tab?.id || activeSourceTabId;
         handleWordStreamAnalysis(message.word, message.mode, targetTabId || null);
     }
-    if (message.type === 'FETCH_VALID_MODELS_REQUEST') {
-        console.log('[Background] Received FETCH_VALID_MODELS_REQUEST');
-        fetchAllValidModelsFromAIStudio().then((models) => {
-            console.log('[Background] Sending models response:', models?.length);
-            sendResponse({ models });
-        }).catch(err => {
-            console.error('[Background] fetchAllValidModelsFromAIStudio error:', err);
-            sendResponse({ models: [] });
-        });
-        return true;
-    }
     if (message.type === 'SYNC_RPD_REQUEST') {
-        console.log('[Background] Received SYNC_RPD_REQUEST for:', message.model);
+        console.log('[Background] Received SYNC_RPD_REQUEST (Manual only):', message.model);
         syncRPDFromAIStudio(message.model).then((rpd) => {
-            console.log('[Background] Sending RPD response:', rpd);
             sendResponse({ rpd });
         }).catch(err => {
             console.error('[Background] syncRPDFromAIStudio error:', err);
@@ -363,7 +351,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
     if (message.type === 'SYNC_RPD_DATA') {
-        console.log('[Background] Received SYNC_RPD_DATA:', message.used, '/', message.limit, 'for model:', message.model);
+        console.log('[Background] Received SYNC_RPD_DATA (Local sync only):', message.used, '/', message.limit, 'for model:', message.model);
         refreshUsageWithCount(false, message.used, message.limit, message.model).then(() => {
             sendResponse({ success: true });
         });
@@ -372,24 +360,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
 });
 
-// AI Studioから利用可能な全ての有効なモデル（Gemini系 かつ RPD制限あり）を取得する
-async function fetchAllValidModelsFromAIStudio() {
-    console.log('[Background] fetchAllValidModelsFromAIStudio called (auto-sync disabled to prevent popups)');
-    // ユーザー報告の勝手なポップアップを防ぐため、自動同期ウィンドウの作成を停止します。
-    return [];
-}
-
 async function syncRPDFromAIStudio(targetModel: string) {
-    console.log('[Background] syncRPDFromAIStudio called for:', targetModel, '(auto-sync disabled)');
-    // 同様に自動同期ウィンドウの作成を停止します。
-    return null;
+    console.log('[Background] syncRPDFromAIStudio (Manual Triggered) for:', targetModel);
+    // UI側の要望により、回数確認時のみ一瞬ウィンドウを立ち上げて同期する旧ロジックを最小限で再現します。
+    // 手動操作にのみ反応するため、勝手に立ち上がることはありません。
+
+    return new Promise((resolve) => {
+        const url = 'https://aistudio.google.com/app/plan';
+        chrome.windows.create({
+            url,
+            type: 'popup',
+            width: 100,
+            height: 100,
+            focused: true // 手動操作なのでフォーカスを当てる（不要なバックグラウンド動作を避ける）
+        }, (win) => {
+            // content script (AI Studio用) がデータを読み取って SYNC_RPD_DATA を送ってくるのを待つ
+            // 一定時間経過しても同期されない場合はタイムアウト
+            setTimeout(() => {
+                if (win?.id) chrome.windows.remove(win.id);
+                resolve(null);
+            }, 5000);
+        });
+    });
 }
 // 外部からのメッセージ（別の拡張機能からの同期）
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (sender.id !== OTHER_EXTENSION_ID) return;
 
     if (message.type === 'EXTERNAL_SYNC_USAGE') {
-        const today = new Date().toLocaleDateString('ja-JP');
+        const today = getPacificDateString();
         // 入力バリデーション
         const msgCount = typeof message.count === 'number' ? message.count : 0;
         const msgModelCount = typeof message.modelCount === 'number' ? message.modelCount : 0;
@@ -433,7 +432,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         }
     } else if (message.type === 'GET_USAGE') {
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
-            const today = new Date().toLocaleDateString('ja-JP');
+            const today = getPacificDateString();
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
             const model = result.geminiModel as string || 'gemini-2.5-flash';
             const modelCount = data.models?.[model]?.count || 0;
@@ -455,7 +454,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 async function syncOnStartup() {
     chrome.runtime.sendMessage(OTHER_EXTENSION_ID, { type: 'GET_USAGE' }, (response) => {
         if (chrome.runtime.lastError || !response) return;
-        const today = new Date().toLocaleDateString('ja-JP');
+        const today = getPacificDateString();
         if (response.date === today) {
             chrome.storage.local.get(['usageData'], (result) => {
                 let data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
@@ -515,7 +514,7 @@ async function updateGeminiUsage() {
 }
 
 async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | null = null, forcedLimit: number | null = null, forcedModelName: string | null = null) {
-    const today = new Date().toLocaleDateString('ja-JP');
+    const today = getPacificDateString();
     const now = Date.now();
     const oneMinuteAgo = now - 60000;
 

@@ -1,6 +1,18 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // ==========================================
+// 共通ユーティリティ
+// ==========================================
+
+/**
+ * 米国太平洋時間(PT)での日付文字列を取得 (YYYY-MM-DD形式)
+ * Intl.DateTimeFormat (en-CA) を使用することで自動的に夏時間が考慮される
+ */
+export function getPacificDateString(): string {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+
+// ==========================================
 // LingoDesk 機能別システムプロンプト
 // ==========================================
 
@@ -133,23 +145,29 @@ export const SYSTEM_PROMPT = PROMPT_TUTOR;
 
 // テキスト出力モデルのAPI ID一覧
 export const TEXT_OUTPUT_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-3-flash-preview',
+    'gemini-3-flash-preview-01-21',
+    'gemini-2.5-flash-preview',
+    'gemini-2.5-flash-lite-preview',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
 ];
 
-// AI Studio の RPD上限（実際の値に合わせて設定）
+// AI Studio の RPD上限（画像に基づいて 20 に設定）
 export const KNOWN_RPD_LIMITS: Record<string, number> = {
-    'gemini-2.5-flash': 20,
-    'gemini-2.5-flash-lite': 20,
-    'gemini-3-flash-preview': 20,
+    'gemini-3-flash-preview-01-21': 20,
+    'gemini-2.5-flash-preview': 20,
+    'gemini-2.5-flash-lite-preview': 20,
+    'gemini-1.5-flash': 15,
+    'gemini-1.5-pro': 2,
 };
 
-// 表示名（公式の名前に統一）
+// 表示名（画像の名前に合わせる）
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
-    'gemini-2.5-flash': 'Gemini 2.5 Flash',
-    'gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',
-    'gemini-3-flash-preview': 'Gemini 3 Flash',
+    'gemini-3-flash-preview-01-21': 'Gemini 3 Flash',
+    'gemini-2.5-flash-preview': 'Gemini 2.5 Flash',
+    'gemini-2.5-flash-lite-preview': 'Gemini 2.5 Flash Lite',
+    'gemini-1.5-flash': 'Gemini 1.5 Flash',
+    'gemini-1.5-pro': 'Gemini 1.5 Pro',
 };
 
 // ==========================================

@@ -8,35 +8,6 @@ const FONT_OPTIONS = [
     { value: "'Georgia', serif", label: 'Georgia (Serif)' },
 ];
 
-// AI Studioの表示名からモデルIDへの基本マッピング (English Words と一致させる)
-const MODEL_ID_MAP: Record<string, string> = {
-    'Gemini 3 Flash': 'gemini-3-flash-preview',
-    'Gemini 2.5 Flash Lite': 'gemini-2.5-flash-lite',
-    'Gemini 2.5 Flash': 'gemini-2.5-flash',
-    'Gemini 2.5 Pro': 'gemini-2.5-pro',
-    'Gemini 2.0 Flash': 'gemini-2.0-flash',
-    'Gemini 2.0 Flash-Lite': 'gemini-2.0-flash-lite-preview-02-05',
-    'Gemini 2.0 Pro': 'gemini-2.0-pro-exp-02-05',
-    'Gemini 1.5 Flash': 'gemini-1.5-flash',
-    'Gemini 1.5 Flash-8B': 'gemini-1.5-flash-8b',
-    'Gemini 1.5 Pro': 'gemini-1.5-pro'
-};
-
-// 表記揺れ（スペース・ハイフンの差）を吸収する堅牢な名寄せロジック
-const getModelId = (studioName: string) => {
-    const name = studioName.trim();
-    if (MODEL_ID_MAP[name]) return MODEL_ID_MAP[name];
-
-    const canonical = (s: string) => s.replace(/[-\s]/g, ' ').toLowerCase();
-    const targetCanonical = canonical(name);
-
-    // マッピングから正規化一致を探す
-    const foundKey = Object.keys(MODEL_ID_MAP).find(k => canonical(k) === targetCanonical);
-    if (foundKey) return MODEL_ID_MAP[foundKey];
-
-    // フォールバック
-    return name.toLowerCase().replace(/\s+/g, '-');
-};
 
 function App() {
     const [apiKey, setApiKey] = useState('');
@@ -45,12 +16,13 @@ function App() {
     const [fontSize, setFontSize] = useState(14);
     const [fontFamily, setFontFamily] = useState("'Noto Sans JP', 'Segoe UI', sans-serif");
     const [displayMode, setDisplayMode] = useState<'popup' | 'window'>('popup');
-    const [availableModels, setAvailableModels] = useState<{ id: string; studioName: string; rpd: string }[]>([]);
-    const [loadingModels, setLoadingModels] = useState(false);
-    const [isSyncingRPD, setIsSyncingRPD] = useState(false);
+    const [availableModels] = useState<{ id: string; studioName: string; limit: number }[]>([
+        { id: 'gemini-2.0-flash', studioName: 'Gemini 2.0 Flash', limit: 30 },
+        { id: 'gemini-1.5-flash', studioName: 'Gemini 1.5 Flash', limit: 15 },
+        { id: 'gemini-1.5-pro', studioName: 'Gemini 1.5 Pro', limit: 2 },
+    ]);
     const [showApiKey, setShowApiKey] = useState(false);
     const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    const [selectedStudioName, setSelectedStudioName] = useState('');
 
 
     useEffect(() => {
@@ -68,113 +40,14 @@ function App() {
         );
     }, []);
 
-    const fetchModels = async () => {
-        setLoadingModels(true);
-        setStatusMessage(null);
-        try {
-            chrome.runtime.sendMessage({ type: 'FETCH_VALID_MODELS_REQUEST' }, (response: any) => {
-                const error = chrome.runtime.lastError;
-                if (error) {
-                    setStatusMessage({ type: 'error', text: `Failed to connect background: ${error.message}` });
-                    setLoadingModels(false);
-                    return;
-                }
-                const rawModels = response?.models || [];
-
-                const modelsWithId = rawModels.map((m: any) => ({
-                    id: getModelId(m.studioName),
-                    studioName: m.studioName,
-                    rpd: m.rpd
-                }));
-
-                setAvailableModels(modelsWithId);
-
-                // 初期選択の復元
-                if (modelsWithId.length > 0) {
-                    // 保存されたIDに一致する表示名を検索 (IDが複数ある場合、最初に見つかったものを暫定的にセット)
-                    const found = modelsWithId.find((m: any) => m.id === model);
-                    if (found) {
-                        setSelectedStudioName(found.studioName);
-                        const match = found.rpd.match(/(\d+)\s*\/\s*(\d+)/);
-                        if (match) {
-                            const limit = parseInt(match[2]);
-                            setGeminiDailyLimit(limit);
-                            chrome.runtime.sendMessage({
-                                type: 'SYNC_RPD_DATA',
-                                used: parseInt(match[1]),
-                                limit,
-                                model: found.id
-                            });
-                        }
-                    }
-                }
-
-                if (modelsWithId.length > 0) {
-                    setStatusMessage({ type: 'success', text: `✓ ${modelsWithId.length} models fetched successfully.` });
-                } else {
-                    setStatusMessage({ type: 'error', text: 'No valid models found. Please check your AI Studio login.' });
-                }
-                setLoadingModels(false);
-            });
-        } catch (error) {
-            console.error('[FetchModels] Error:', error);
-            setStatusMessage({ type: 'error', text: 'Critical error while fetching models.' });
-            setLoadingModels(false);
-        }
-    };
-
-    const syncRPDFromAIStudio = async (targetModel: string): Promise<number | null> => {
-        // すでにモデル一覧として取得済みのデータがあればそちらを優先（高速化と正確性）
-        const cached = availableModels.find(m => m.id === targetModel);
-        if (cached && cached.rpd) {
-            const match = cached.rpd.match(/(\d+)\s*\/\s*(\d+)/);
-            if (match) {
-                const used = parseInt(match[1]);
-                const limit = parseInt(match[2]);
-                return new Promise((resolve) => {
-                    chrome.runtime.sendMessage({ type: 'SYNC_RPD_DATA', used, limit, model: targetModel }, (response) => {
-                        if (response?.success) {
-                            setGeminiDailyLimit(limit);
-                            resolve(limit);
-                        } else {
-                            resolve(null);
-                        }
-                    });
-                });
-            }
-        }
-
-        if (isSyncingRPD) return null;
-        setIsSyncingRPD(true);
-        try {
-            return new Promise((resolve) => {
-                chrome.runtime.sendMessage({ type: 'SYNC_RPD_REQUEST', model: targetModel }, (response) => {
-                    const rpd = response?.rpd;
-                    if (rpd !== undefined && rpd !== null) {
-                        setGeminiDailyLimit(rpd);
-                    }
-                    setIsSyncingRPD(false);
-                    resolve(rpd);
-                });
-            });
-        } catch (error) {
-            console.error('[SyncRPD] Error:', error);
-            setIsSyncingRPD(false);
-            return null;
-        }
-    };
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // 保存時にも最新のRPDを確実に取得
-        const latestRPD = await syncRPDFromAIStudio(model);
-        const finalDailyLimit = latestRPD !== null ? latestRPD : geminiDailyLimit;
-
         chrome.storage.local.set({
             geminiApiKey: apiKey,
             geminiModel: model,
-            geminiDailyLimit: finalDailyLimit,
+            geminiDailyLimit: geminiDailyLimit,
             fontSize,
             fontFamily,
             displayMode,
@@ -254,26 +127,18 @@ function App() {
                                 {availableModels.length > 0 ? (
                                     <>
                                         <select
-                                            key={`model-select-${availableModels.length}`}
-                                            value={selectedStudioName}
+                                            value={model}
                                             onChange={(e) => {
-                                                const name = e.target.value;
-                                                const selected = availableModels.find(m => m.studioName === name);
-                                                if (selected) {
-                                                    setSelectedStudioName(selected.studioName);
-                                                    setModel(selected.id);
-                                                    syncRPDFromAIStudio(selected.id);
-                                                    setStatusMessage({
-                                                        type: 'success',
-                                                        text: `Selected: ${selected.studioName} (ID: ${selected.id})`
-                                                    });
-                                                }
+                                                const mId = e.target.value;
+                                                const selected = availableModels.find(m => m.id === mId);
+                                                // selected が見つからないことは想定しないため、if文は不要
+                                                setModel(selected!.id);
+                                                setGeminiDailyLimit(selected!.limit);
                                             }}
                                         >
-                                            <option value="" disabled>Select a model...</option>
                                             {availableModels.map((m, idx) => (
-                                                <option key={`${m.studioName}-${idx}`} value={m.studioName}>
-                                                    {m.studioName} ({m.rpd})
+                                                <option key={`${m.id}-${idx}`} value={m.id}>
+                                                    {m.studioName} (Limit: {m.limit} RPD)
                                                 </option>
                                             ))}
                                         </select>
@@ -289,20 +154,8 @@ function App() {
                                         placeholder="e.g. gemini-2.0-flash"
                                     />
                                 )}
-                                <button
-                                    type="button"
-                                    className="action-btn"
-                                    onClick={fetchModels}
-                                    disabled={!apiKey || loadingModels}
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={loadingModels ? 'spinning' : ''}>
-                                        <polyline points="23 4 23 10 17 10"></polyline>
-                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                                    </svg>
-                                    <span>{loadingModels ? 'Loading...' : 'Fetch Available Models'}</span>
-                                </button>
+                                <span>Available Models (Internal Only)</span>
                             </div>
-                            <p className="form-hint">APIキーを入力後「Fetch Available Models」で取得できます。</p>
                         </div>
 
                         <div className="form-group">

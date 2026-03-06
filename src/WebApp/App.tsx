@@ -8,18 +8,13 @@ import {
     KNOWN_RPD_LIMITS,
     TEXT_OUTPUT_MODELS,
     MODEL_DISPLAY_NAMES,
+    getPacificDateString,
 } from '../lib/gemini';
 import './App.css';
 
 type FunctionType = 'words' | 'tutor';
 type AppView = 'main' | 'settings' | 'result';
 
-// ==========================================
-// RPDリセット: 米国太平洋時間(PT)午前0時 = JST 17:00 (DST中は16:00)
-// ==========================================
-function getPacificDateString(): string {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-}
 
 // ==========================================
 // RPD管理（モデルごと・localStorage）
@@ -683,37 +678,44 @@ function App() {
                                 if (!modelDropdownOpen) fetchModels();
                             }}>
                                 <span className="model-name">{displayModel}</span>
-                                <ChevronDown size={14} />
+                                <ChevronDown size={14} className={modelDropdownOpen ? 'rotate-180' : ''} />
                             </button>
                             {modelDropdownOpen && (
                                 <div className="model-dropdown">
+                                    <div className="model-dropdown-header">
+                                        <span>Select AI Model</span>
+                                        <button className="refresh-models-btn" onClick={(e) => {
+                                            e.stopPropagation();
+                                            fetchModels();
+                                        }} title="回数を確認">反映</button>
+                                    </div>
                                     {loadingModels ? (
-                                        <div className="model-dropdown-loading">読み込み中...</div>
-                                    ) : availableModels.length > 0 ? (
-                                        availableModels
-                                            .filter(m => {
-                                                const remaining = getModelRemainingRPD(m);
-                                                const limit = KNOWN_RPD_LIMITS[m] ?? 20;
-                                                return limit > 0 && remaining > 0;
-                                            })
-                                            .map(m => {
-                                                const remaining = getModelRemainingRPD(m);
-                                                const limit = KNOWN_RPD_LIMITS[m] ?? 20;
-                                                return (
-                                                    <button key={m} className={`model-option ${m === model ? 'active' : ''}`} onClick={(e) => {
+                                        <div className="model-dropdown-loading">更新中...</div>
+                                    ) : (
+                                        TEXT_OUTPUT_MODELS.map(m => {
+                                            const remaining = getModelRemainingRPD(m);
+                                            const limit = KNOWN_RPD_LIMITS[m] ?? 20;
+                                            const isSelected = m === model;
+                                            const isDisabled = remaining <= 0;
+
+                                            return (
+                                                <button
+                                                    key={m}
+                                                    className={`model-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
+                                                    onClick={(e) => {
                                                         e.stopPropagation();
+                                                        if (isDisabled) return;
                                                         setModel(m);
                                                         localStorage.setItem('lingodesk_model', m);
-                                                        setCurrentRPD(getModelRemainingRPD(m));
+                                                        setCurrentRPD(remaining);
                                                         setModelDropdownOpen(false);
-                                                    }}>
-                                                        <span className="model-option-name">{MODEL_DISPLAY_NAMES[m] || m}</span>
-                                                        <span className="model-option-rpd">残り{remaining}/{limit}</span>
-                                                    </button>
-                                                );
-                                            })
-                                    ) : (
-                                        <div className="model-dropdown-loading">利用可能なモデルがありません</div>
+                                                    }}
+                                                >
+                                                    <span className="model-option-name">{MODEL_DISPLAY_NAMES[m] || m}</span>
+                                                    <span className="model-option-rpd">残り {remaining}/{limit}</span>
+                                                </button>
+                                            );
+                                        })
                                     )}
                                 </div>
                             )}
