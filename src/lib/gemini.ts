@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // ==========================================
@@ -236,6 +235,3 @@ export async function checkModelsRPDStatus(
 
     return status;
 }
-
-=======
->>>>>>> dc4fe6aa47ec2f8f63fcb7e286643b3947405458
