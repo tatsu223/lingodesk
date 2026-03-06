@@ -166,11 +166,7 @@ chrome.storage.onChanged.addListener((changes) => {
             const newLimit = changes.geminiDailyLimit.newValue;
             if (newLimit) {
                 chrome.storage.local.get(['usageData', 'geminiModel'], (result) => {
-<<<<<<<<< Temporary merge branch 1
                     const model = result.geminiModel as string || 'gemini-2.5-flash';
-=========
-                    const model = result.geminiModel as string || 'gemini-2.0-flash';
->>>>>>>>> Temporary merge branch 2
                     const data = (result.usageData as UsageData) || { date: new Date().toLocaleDateString('ja-JP'), count: 0, models: {} };
                     const modelCount = data.models?.[model]?.count || 0;
 
@@ -236,11 +232,7 @@ async function checkAndUpgradeModel() {
         }
 
         // 旧世代（1.5等）の場合のみ、利用可能な最新Flashへ引き上げる
-<<<<<<<<< Temporary merge branch 1
         const flashPriority = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-=========
-        const flashPriority = ['gemini-2.0-flash', 'gemini-1.5-flash'];
->>>>>>>>> Temporary merge branch 2
         for (let i = 0; i < flashPriority.length; i++) {
             const candidate = flashPriority[i];
             if (models.includes(candidate)) {
