@@ -273,7 +273,7 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
-    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.0-flash');
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 

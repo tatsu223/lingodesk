@@ -133,23 +133,23 @@ export const SYSTEM_PROMPT = PROMPT_TUTOR;
 
 // テキスト出力モデルのAPI ID一覧
 export const TEXT_OUTPUT_MODELS = [
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-flash-8b',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3-flash-preview',
 ];
 
 // AI Studio の RPD上限（実際の値に合わせて設定）
 export const KNOWN_RPD_LIMITS: Record<string, number> = {
-    'gemini-2.0-flash': 15,
-    'gemini-1.5-flash': 15,
-    'gemini-1.5-flash-8b': 15,
+    'gemini-2.5-flash': 20,
+    'gemini-2.5-flash-lite': 20,
+    'gemini-3-flash-preview': 20,
 };
 
 // 表示名（公式の名前に統一）
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
-    'gemini-2.0-flash': 'Gemini 2.0 Flash',
-    'gemini-1.5-flash': 'Gemini 1.5 Flash',
-    'gemini-1.5-flash-8b': 'Gemini 1.5 Flash 8B',
+    'gemini-2.5-flash': 'Gemini 2.5 Flash',
+    'gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',
+    'gemini-3-flash-preview': 'Gemini 3 Flash',
 };
 
 // ==========================================
@@ -161,7 +161,7 @@ export async function analyzeTextStream(
     apiKey: string,
     text: string,
     systemPrompt: string,
-    modelName: string = "gemini-2.0-flash",
+    modelName: string = "gemini-2.5-flash",
     onChunk: (accumulated: string) => void
 ): Promise<string> {
     const genAI = new GoogleGenerativeAI(apiKey);

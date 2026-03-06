@@ -166,7 +166,7 @@ chrome.storage.onChanged.addListener((changes) => {
             const newLimit = changes.geminiDailyLimit.newValue;
             if (newLimit) {
                 chrome.storage.local.get(['usageData', 'geminiModel'], (result) => {
-                    const model = result.geminiModel as string || 'gemini-2.0-flash';
+                    const model = result.geminiModel as string || 'gemini-2.5-flash';
                     const data = (result.usageData as UsageData) || { date: new Date().toLocaleDateString('ja-JP'), count: 0, models: {} };
                     const modelCount = data.models?.[model]?.count || 0;
 
@@ -232,7 +232,7 @@ async function checkAndUpgradeModel() {
         }
 
         // 旧世代（1.5等）の場合のみ、利用可能な最新Flashへ引き上げる
-        const flashPriority = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+        const flashPriority = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
         for (let i = 0; i < flashPriority.length; i++) {
             const candidate = flashPriority[i];
             if (models.includes(candidate)) {
@@ -376,18 +376,193 @@ const AI_STUDIO_URL = "https://aistudio.google.com/rate-limit?timeRange=last-1-d
 
 // AI Studioから利用可能な全ての有効なモデル（Gemini系 かつ RPD制限あり）を取得する
 async function fetchAllValidModelsFromAIStudio() {
-    console.log('[Background] fetchAllValidModelsFromAIStudio called (auto-sync disabled to prevent popups)');
-    // ユーザー報告の勝手なポップアップを防ぐため、自動同期ウィンドウの作成を停止します。
-    // 必要に応じて、将来的に別の非侵襲的な方法（SDKのエラーから学習するなど）を検討します。
-    return [];
+    console.log('[Background] Fetching models via stealth window...');
+    let winId: number | null = null;
+
+    try {
+        const win = await chrome.windows.create({
+            url: AI_STUDIO_URL,
+            type: 'popup',
+            state: 'normal',
+            focused: false,
+            left: -5000,
+            top: -5000,
+            width: 1,
+            height: 1
+        });
+        if (!win || !win.id) throw new Error('Sync window creation failed');
+        winId = win.id;
+
+        let tabId: number | null = null;
+        for (let i = 0; i < 10; i++) {
+            const tabs = await chrome.tabs.query({ windowId: winId });
+            if (tabs && tabs.length > 0) {
+                tabId = tabs[0].id!;
+                break;
+            }
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (!tabId) throw new Error('Tab ID not found');
+        await new Promise(r => setTimeout(r, 10000));
+
+        // 「さらに表示」ボタンがあればクリックして全モデルを展開
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: () => {
+                const btn = document.querySelector('.see-more-button') as HTMLElement;
+                if (btn) btn.click();
+            }
+        });
+        await new Promise(r => setTimeout(r, 2000));
+
+        const results = await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: () => {
+                const models: { studioName: string; rpd: string }[] = [];
+                const rows = Array.from(document.querySelectorAll('tr'));
+                for (const row of rows) {
+                    const cells = Array.from(row.querySelectorAll('td'));
+                    if (cells.length === 0) continue;
+
+                    // カテゴリ列で「テキスト出力モデル」のみに絞り込む
+                    const categoryCell = cells.find(c => c.classList.contains('cdk-column-Category'));
+                    const categoryText = categoryCell ? categoryCell.textContent!.trim() : '';
+                    if (!categoryText.includes('テキスト出力モデル')) continue;
+
+                    const nameCell = cells.find(c => c.classList.contains('cdk-column-Model'));
+                    const rpdCell = cells.find(c => c.classList.contains('cdk-column-RPD'));
+
+                    if (nameCell && rpdCell && rpdCell.textContent!.includes('/')) {
+                        const name = nameCell.textContent!.trim();
+                        const rpd = rpdCell.textContent!.trim();
+                        const rpdParts = rpd.split('/');
+                        const limitStr = rpdParts.length > 1 ? rpdParts[1].trim() : '0';
+                        const limit = parseInt(limitStr) || 0;
+
+                        // RPDのlimit（右側の数値）が0より大きいもののみ
+                        if (name && name !== 'check' && limit > 0) {
+                            models.push({ studioName: name, rpd: rpd });
+                        }
+                    }
+                }
+                return models;
+            }
+        });
+
+        const models = results[0]?.result as any[] || [];
+        console.log('[Background] Stealth result (models):', models.length);
+        return models;
+    } catch (error) {
+        console.error('[Background Fetch Models] Error:', error);
+        return [];
+    } finally {
+        if (winId !== null) {
+            chrome.windows.remove(winId).catch(() => { });
+        }
+    }
 }
 
 async function syncRPDFromAIStudio(targetModel: string) {
-    console.log('[Background] syncRPDFromAIStudio called for:', targetModel, '(auto-sync disabled)');
-    // 同様に自動同期ウィンドウの作成を停止します。
-    return null;
-}
+    console.log('[Background] Syncing RPD via stealth window for:', targetModel);
+    let winId: number | null = null;
 
+    try {
+        const win = await chrome.windows.create({
+            url: AI_STUDIO_URL,
+            type: 'popup',
+            state: 'normal',
+            focused: false,
+            left: -5000,
+            top: -5000,
+            width: 1,
+            height: 1
+        });
+        if (!win || !win.id) throw new Error('Sync window creation failed');
+        winId = win.id;
+
+        let tabId: number | null = null;
+        for (let i = 0; i < 10; i++) {
+            const tabs = await chrome.tabs.query({ windowId: winId });
+            if (tabs && tabs.length > 0) {
+                tabId = tabs[0].id!;
+                break;
+            }
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (!tabId) throw new Error('Tab ID not found');
+        await new Promise(r => setTimeout(r, 10000));
+
+        // 「さらに表示」ボタンがあればクリックして全モデルを展開
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: () => {
+                const btn = document.querySelector('.see-more-button') as HTMLElement;
+                if (btn) btn.click();
+            }
+        });
+        await new Promise(r => setTimeout(r, 2000));
+
+        const results = await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: (modelId) => {
+                const getVariants = (id: string) => {
+                    const parts = id.split('-');
+                    let family = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                    let version = parts[1];
+                    let tier = parts[2] ? parts[2].charAt(0).toUpperCase() + parts[2].slice(1) : '';
+                    const v = [];
+                    v.push(`${family} ${version} ${tier}`.trim());
+                    if (version === '2.0') v.push(`${family} 2 ${tier}`.trim());
+                    else if (version === '2') v.push(`${family} 2.0 ${tier}`.trim());
+                    if (version === '1.5') v.push(`${family} 1.5 ${tier}`.trim());
+                    return v;
+                };
+
+                const variants = getVariants(modelId);
+                const rows = Array.from(document.querySelectorAll('tr'));
+                for (const row of rows) {
+                    const rowText = row.textContent || '';
+                    if (rowText.includes('Gemini')) {
+                        const cells = Array.from(row.querySelectorAll('td'));
+                        const nameCell = cells.find(c => c.classList.contains('cdk-column-Model')) || cells[1];
+                        const rpdCell = cells.find(c => c.classList.contains('cdk-column-RPD')) || cells[5];
+
+                        if (nameCell && rpdCell && rpdCell.textContent.includes('/')) {
+                            const name = nameCell.textContent.trim();
+                            const rpd = rpdCell.textContent.trim();
+                            const isMatch = variants.some(v => name.includes(v)) || name.includes(modelId);
+
+                            if (isMatch) {
+                                const match = rpd.match(/(\d+)\s*\/\s*(\d+)/);
+                                if (match) return { used: parseInt(match[1]), limit: parseInt(match[2]) };
+                            }
+                        }
+                    }
+                }
+                return null;
+            },
+            args: [targetModel]
+        });
+
+        const rpdResult = results[0]?.result as { used: number; limit: number } | null;
+        console.log('[Background] Stealth result (RPD):', rpdResult);
+
+        if (rpdResult) {
+            await refreshUsageWithCount(false, rpdResult.used, rpdResult.limit, targetModel);
+            return rpdResult.limit;
+        }
+        return null;
+    } catch (error) {
+        console.error('[Background Sync] Error:', error);
+        return null;
+    } finally {
+        if (winId !== null) {
+            chrome.windows.remove(winId).catch(() => { });
+        }
+    }
+}
 
 // 外部からのメッセージ（別の拡張機能からの同期）
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
@@ -440,7 +615,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
             const today = new Date().toLocaleDateString('ja-JP');
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
-            const model = result.geminiModel as string || 'gemini-2.0-flash';
+            const model = result.geminiModel as string || 'gemini-2.5-flash';
             const modelCount = data.models?.[model]?.count || 0;
 
             sendResponse({
@@ -542,7 +717,7 @@ async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | n
             data.history = data.history.filter(timestamp => timestamp > oneMinuteAgo);
 
             const { geminiModel, geminiDailyLimit } = result;
-            const modelName = forcedModelName || (geminiModel as string) || 'gemini-2.0-flash';
+            const modelName = forcedModelName || (geminiModel as string) || 'gemini-2.5-flash';
             if (!data.models[modelName]) data.models[modelName] = { count: 0 };
 
             // 強制的なカウント更新があれば適用 (AI Studioからの同期など)
