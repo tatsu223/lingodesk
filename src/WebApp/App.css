@@ -632,20 +632,6 @@ body {
   background: var(--bg-card);
 }
 
-/* Voice Selector */
-.voice-select {
-  padding: 6px 10px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
-  font-size: 0.75rem;
-  max-width: 180px;
-  outline: none;
-}
-
-
 .result-hr {
   border: none;
   border-top: 1px solid var(--border-subtle);
@@ -700,35 +686,6 @@ body {
 .bullet-dot {
   color: var(--accent-indigo);
   font-weight: bold;
-}
-
-/* Audio Loading Overlay */
-.audio-loading-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  pointer-events: none;
-  /* 下の要素を触れるように */
-}
-
-.loader-box {
-  background: var(--bg-card);
-  padding: 12px 20px;
-  border-radius: 14px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text-primary);
-  font-weight: 500;
-  border: 1px solid var(--border-subtle);
-  pointer-events: auto;
-  /* ボックスのみイベントを受け取る */
 }
 
 .spin-icon {

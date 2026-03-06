@@ -5,11 +5,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // ==========================================
 
 /**
- * 米国太平洋時間(PT)での日付文字列を取得 (YYYY-MM-DD形式)
- * Intl.DateTimeFormat (en-CA) を使用することで自動的に夏時間が考慮される
+ * ブラウザのローカル時間での日付文字列を取得 (YYYY-MM-DD形式)
  */
-export function getPacificDateString(): string {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+export function getLocalDateString(): string {
+    return new Date().toLocaleDateString('en-CA');
 }
 
 // ==========================================
@@ -144,30 +143,25 @@ export const SYSTEM_PROMPT = PROMPT_TUTOR;
 // ==========================================
 
 // テキスト出力モデルのAPI ID一覧
+// ※AI Studio上の表示が Gemini 2.5 や 3 になっているが、API IDとしては安定版を使用する
 export const TEXT_OUTPUT_MODELS = [
-    'gemini-3-flash-preview-01-21',
-    'gemini-2.5-flash-preview',
-    'gemini-2.5-flash-lite-preview',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
+    'gemini-2.5-flash',                  // Gemini 2.5 Flash
+    'gemini-3-flash-preview',            // Gemini 3 Flash
+    'gemini-2.5-flash-lite',             // Gemini 2.5 Flash Lite
 ];
 
-// AI Studio の RPD上限（画像に基づいて 20 に設定）
+// AI Studio の RPD上限
 export const KNOWN_RPD_LIMITS: Record<string, number> = {
-    'gemini-3-flash-preview-01-21': 20,
-    'gemini-2.5-flash-preview': 20,
-    'gemini-2.5-flash-lite-preview': 20,
-    'gemini-1.5-flash': 15,
-    'gemini-1.5-pro': 2,
+    'gemini-2.5-flash': 20,
+    'gemini-3-flash-preview': 20,
+    'gemini-2.5-flash-lite': 20,
 };
 
-// 表示名（画像の名前に合わせる）
+// 表示名 (AI Studio の表示名に基づいた、API IDへの逆引き用)
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
-    'gemini-3-flash-preview-01-21': 'Gemini 3 Flash',
-    'gemini-2.5-flash-preview': 'Gemini 2.5 Flash',
-    'gemini-2.5-flash-lite-preview': 'Gemini 2.5 Flash Lite',
-    'gemini-1.5-flash': 'Gemini 1.5 Flash',
-    'gemini-1.5-pro': 'Gemini 1.5 Pro',
+    'gemini-2.5-flash': 'Gemini 2.5 Flash',
+    'gemini-3-flash-preview': 'Gemini 3 Flash',
+    'gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',
 };
 
 // ==========================================
@@ -201,55 +195,66 @@ export async function analyzeTextStream(
                 }
             } catch (chunkError: any) {
                 console.warn("Chunk processing error (possible partial content):", chunkError);
-                // 一部のチャンクに問題があっても、中断せずに続行を試みる
-                // ただし、完全に解析不能な場合は上位でキャッチされる
+                // 安全フィルター等で一部がブロックされた場合の処理をここで行うことも可能
             }
         }
     } catch (streamError: any) {
-        console.error("Stream execution error:", streamError);
-        // ストリーム全体が失敗した場合は、それまでに蓄積されたものがあるか確認
-        if (!accumulated) {
-            throw new Error(`[GoogleGenerativeAI Error]: Failed to parse stream. ${streamError.message || ""}`);
+        console.error("Stream execution error details:", streamError);
+        const msg = streamError.message || "";
+        
+        let errorType = "[ERROR]";
+        if (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted")) {
+            errorType = "[RESOURCE_EXHAUSTED]";
+        } else if (msg.includes("API key") || msg.includes("401") || msg.includes("403")) {
+            errorType = "[AUTH_ERROR]";
+        } else if (msg.includes("Safety") || msg.includes("block") || msg.includes("candidate")) {
+            errorType = "[SAFETY_ERROR]";
         }
-        // 蓄積があればそれを返して終了とする（中途半端な出力になる可能性があるため警告）
-        console.warn("Stream stopped prematurely but some content was received.");
+
+        // 蓄積が全くない場合のみ致命的なエラーとして投げる
+        if (!accumulated) {
+            throw new Error(`${errorType} ${msg}`);
+        }
+        
+        console.warn(`${errorType} Stream stopped prematurely but some content was received. Msg: ${msg}`);
     }
 
     return accumulated;
 }
 
 // 利用可能なテキスト出力モデル一覧取得
-// TEXT_OUTPUT_MODELS に定義されたモデルを常に返す（API一覧にないpreviewモデルも確実に含めるため）
 export async function listAvailableModels(_apiKey: string): Promise<string[]> {
-    return [...TEXT_OUTPUT_MODELS];
+    try {
+        // ユーザーの指示により、外部APIへのアクセスは削除
+        // 過去のプレビュー版のIDがストレージに残存し404エラーを引き起こすのを防ぐため、
+        // TEXT_OUTPUT_MODELS に含まれる「安全と分かっているID」のみを返す
+        const result = await chrome.storage.local.get(['availableModels']);
+        if (result.availableModels && Array.isArray(result.availableModels)) {
+            // ストレージにあるモデルのうち、TEXT_OUTPUT_MODELS に定義されているものだけに絞る
+            // (RPDが0のものはバックグラウンド側で既に除外されている想定)
+            const safeModels = result.availableModels.filter((m: string) => TEXT_OUTPUT_MODELS.includes(m));
+            if (safeModels.length > 0) {
+                return safeModels;
+            }
+        }
+        
+        // ストレージにない、または安全なモデルが見つからない場合はデフォルトを返す
+        return [...TEXT_OUTPUT_MODELS];
+    } catch (err) {
+        console.error('Error fetching available models:', err);
+        return [...TEXT_OUTPUT_MODELS];
+    }
 }
 
-// 各モデルのRPD状態をチェック（countTokensはRPDを消費しない）
-// 429が返ったモデルは使い切りと判定
+// モデルの状態チェック（外部API呼び出しを削除）
 export async function checkModelsRPDStatus(
-    apiKey: string,
+    _apiKey: string,
     models: string[]
 ): Promise<Record<string, boolean>> {
     const status: Record<string, boolean> = {};
-
-    await Promise.all(
-        models.map(async (modelId) => {
-            try {
-                const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:countTokens?key=${apiKey}`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contents: [{ parts: [{ text: "test" }] }] })
-                    }
-                );
-                // 429 = RPD上限、それ以外のエラー（404等）は利用可能扱い
-                status[modelId] = response.status !== 429;
-            } catch {
-                status[modelId] = true; // ネットワークエラー時はとりあえず利用可能扱い
-            }
-        })
-    );
-
+    
+    // 全てのモデルを一旦利用可能として返す
+    // 実際の回数はストレージから別途取得される
+    models.forEach(m => status[m] = true);
     return status;
 }

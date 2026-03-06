@@ -1,5 +1,5 @@
 /// <reference types="chrome" />
-import { SYSTEM_PROMPT, getPacificDateString } from '../lib/gemini';
+import { SYSTEM_PROMPT, getLocalDateString, TEXT_OUTPUT_MODELS } from '../lib/gemini';
 
 const MENU_ID = "gemini-english-tutor-analyze";
 
@@ -232,7 +232,7 @@ async function checkAndUpgradeModel() {
         }
 
         // 旧世代（1.5等）の場合のみ、利用可能な最新Flashへ引き上げる
-        const flashPriority = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const flashPriority = ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
         for (let i = 0; i < flashPriority.length; i++) {
             const candidate = flashPriority[i];
             if (models.includes(candidate)) {
@@ -360,26 +360,153 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
 });
 
-async function syncRPDFromAIStudio(targetModel: string) {
-    console.log('[Background] syncRPDFromAIStudio (Manual Triggered) for:', targetModel);
-    // UI側の要望により、回数確認時のみ一瞬ウィンドウを立ち上げて同期する旧ロジックを最小限で再現します。
-    // 手動操作にのみ反応するため、勝手に立ち上がることはありません。
+async function syncRPDFromAIStudio(_targetModel?: string) {
+    console.log('[Background] syncRPDFromAIStudio (Scraping Triggered)');
 
     return new Promise((resolve) => {
-        const url = 'https://aistudio.google.com/app/plan';
+        // AI Studioのレート制限ページ
+        const url = 'https://aistudio.google.com/rate-limit?timeRange=last-1-day&hl=ja&project=gen-lang-client-0006121659';
+        
         chrome.windows.create({
             url,
             type: 'popup',
-            width: 100,
-            height: 100,
-            focused: true // 手動操作なのでフォーカスを当てる（不要なバックグラウンド動作を避ける）
+            width: 800,
+            height: 600,
+            focused: false // ユーザーの邪魔をしないようにフォーカスは当てない
         }, (win) => {
-            // content script (AI Studio用) がデータを読み取って SYNC_RPD_DATA を送ってくるのを待つ
-            // 一定時間経過しても同期されない場合はタイムアウト
-            setTimeout(() => {
-                if (win?.id) chrome.windows.remove(win.id);
+            if (!win || !win.tabs || win.tabs.length === 0) {
                 resolve(null);
-            }, 5000);
+                return;
+            }
+
+            const tabId = win.tabs[0].id!;
+
+            // ページが読み込まれるのを待つ
+            const checkPageLoaded = (targetTabId: number, changeInfo: any) => {
+                if (targetTabId === tabId && changeInfo.status === 'complete') {
+                    chrome.tabs.onUpdated.removeListener(checkPageLoaded);
+                    
+                    // 少し待機してからスクレイピング実行（動的読み込み対応）
+                    setTimeout(async () => {
+                        try {
+                            const results = await chrome.scripting.executeScript({
+                                target: { tabId },
+                                func: () => {
+                                    // テーブルの行を探す
+                                    const rows = Array.from(document.querySelectorAll('tr'));
+                                    const modelData: any[] = [];
+                                    
+                                    rows.forEach(row => {
+                                        const cells = Array.from(row.querySelectorAll('td'));
+                                        if (cells.length >= 3) {
+                                            const modelNameText = cells[0].textContent?.trim() || '';
+                                            const rpdText = cells[2].textContent?.trim() || ''; // RPDの列
+                                            
+                                            // RPDの形式が "20 / 20" のようになっていることを想定
+                                            const rpdMatch = rpdText.match(/(\d+)\s*\/\s*(\d+)/);
+                                            if (rpdMatch) {
+                                                const current = parseInt(rpdMatch[1]);
+                                                const limit = parseInt(rpdMatch[2]);
+                                                
+                                                // 右側（リミット）が0でないもののみ抽出
+                                                if (limit > 0) {
+                                                    modelData.push({
+                                                        name: modelNameText,
+                                                        used: limit - current, // 消費量
+                                                        limit: limit
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    });
+                                    return modelData;
+                                }
+                            });
+
+                            const scrapedModels = results[0]?.result || [];
+                            console.log('[Background] Scraped models:', scrapedModels);
+
+                            if (scrapedModels.length > 0) {
+                                // 取得したモデル情報をストレージに保存
+                                const today = getLocalDateString();
+                                chrome.storage.local.get(['usageData'], (res) => {
+                                    let data = (res.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
+                                    if (data.date !== today) {
+                                        data.date = today;
+                                        data.models = {};
+                                    }
+                                    
+                                    const availableModelIds: string[] = [];
+                                    const modelDisplayNames: Record<string, string> = {};
+                                    const knownLimits: Record<string, number> = {};
+
+                                    scrapedModels.forEach((m: any) => {
+                                        // AI Studioの表示名からIDへのマッピングを厳密に行う
+                                        let modelId = '';
+                                        const name = m.name;
+
+                                        if (name.includes('Gemini 2.5 Flash Lite')) {
+                                            modelId = 'gemini-2.5-flash-lite';
+                                        } else if (name.includes('Gemini 2.5 Flash')) {
+                                            modelId = 'gemini-2.5-flash';
+                                        } else if (name.includes('Gemini 3 Flash')) {
+                                            modelId = 'gemini-3-flash-preview';
+                                        } else if (name.includes('Gemini 2.0 Flash')) {
+                                            modelId = 'gemini-2.0-flash';
+                                        } else if (name.includes('Gemini 1.5 Flash') && !name.includes('Lite')) {
+                                            modelId = 'gemini-1.5-flash';
+                                        } else if (name.includes('Gemini 1.5 Flash Lite')) {
+                                            modelId = 'gemini-1.5-flash-lite';
+                                        } else {
+                                            modelId = name.toLowerCase().replace(/\s+/g, '-');
+                                        }
+
+                                        // IDの先頭に 'models/' が付いている場合は除去（ライブラリ側で付与されるため）
+                                        modelId = modelId.replace(/^models\//, '');
+
+                                        availableModelIds.push(modelId);
+                                        modelDisplayNames[modelId] = name;
+                                        knownLimits[modelId] = m.limit;
+
+                                        if (!data.models) data.models = {};
+                                        data.models[modelId] = { count: m.used };
+                                    });
+
+                                    chrome.storage.local.set({ 
+                                        usageData: data,
+                                        availableModels: availableModelIds,
+                                        modelDisplayNames: modelDisplayNames,
+                                        knownLimits: knownLimits
+                                    }, () => {
+                                        console.log('[Background] Storage updated with scraped data');
+                                        refreshUsageOnly(false);
+                                        resolve(scrapedModels);
+                                    });
+                                });
+                            } else {
+                                resolve(null);
+                            }
+                        } catch (err) {
+                            console.error('[Background] Scraping error:', err);
+                            resolve(null);
+                        } finally {
+                            if (win.id) chrome.windows.remove(win.id);
+                        }
+                    }, 2000); // ページの描画待ち
+                }
+            };
+            chrome.tabs.onUpdated.addListener(checkPageLoaded);
+
+            // 10秒でタイムアウト
+            setTimeout(() => {
+                chrome.tabs.onUpdated.removeListener(checkPageLoaded);
+                if (win.id) {
+                    chrome.windows.get(win.id, (w) => {
+                        if (w) chrome.windows.remove(win.id!);
+                    });
+                }
+                resolve(null);
+            }, 10000);
         });
     });
 }
@@ -388,7 +515,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     if (sender.id !== OTHER_EXTENSION_ID) return;
 
     if (message.type === 'EXTERNAL_SYNC_USAGE') {
-        const today = getPacificDateString();
+        const today = getLocalDateString();
         // 入力バリデーション
         const msgCount = typeof message.count === 'number' ? message.count : 0;
         const msgModelCount = typeof message.modelCount === 'number' ? message.modelCount : 0;
@@ -432,7 +559,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         }
     } else if (message.type === 'GET_USAGE') {
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
-            const today = getPacificDateString();
+            const today = getLocalDateString();
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
             const model = result.geminiModel as string || 'gemini-2.5-flash';
             const modelCount = data.models?.[model]?.count || 0;
@@ -454,7 +581,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 async function syncOnStartup() {
     chrome.runtime.sendMessage(OTHER_EXTENSION_ID, { type: 'GET_USAGE' }, (response) => {
         if (chrome.runtime.lastError || !response) return;
-        const today = getPacificDateString();
+        const today = getLocalDateString();
         if (response.date === today) {
             chrome.storage.local.get(['usageData'], (result) => {
                 let data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
@@ -514,7 +641,7 @@ async function updateGeminiUsage() {
 }
 
 async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | null = null, forcedLimit: number | null = null, forcedModelName: string | null = null) {
-    const today = getPacificDateString();
+    const today = getLocalDateString();
     const now = Date.now();
     const oneMinuteAgo = now - 60000;
 
@@ -622,20 +749,23 @@ function broadcastUsage(usage: number) {
 
 
 /**
- * API側が制限（429）を返した際、手元のカウントに関わらず強制的に表示を0%（実効制限中）にする。
- * これにより「%はあるのに使えない」という表示の不整合を解消する。
+ * API側が制限（429）を返した際の処理は WebApp 側に一任するため、
+ * バックグラウンドでの判定や強制リセットは行いません。
  */
-function forceSetUsageZero() {
-    chrome.storage.local.set({
-        gemini1MinUsage: 0
-    });
-}
 
 // 設定取得
 function getSettings(): Promise<{ apiKey: string; model: string }> {
     return new Promise((resolve) => {
         chrome.storage.local.get(['geminiApiKey', 'geminiModel'], (result) => {
-            const model = (result.geminiModel as string) || 'gemini-2.5-flash';
+            let model = (result.geminiModel as string) || 'gemini-2.5-flash';
+            
+            // 安全策: 取得したモデルIDが TEXT_OUTPUT_MODELS に含まれていない場合は、
+            // 404エラーを避けるためにデフォルトモデルにリセットする
+            if (!TEXT_OUTPUT_MODELS.includes(model)) {
+                console.warn('[Background] Invalid model ID detected in storage, resetting to default:', model);
+                model = 'gemini-2.5-flash';
+            }
+
             resolve({
                 apiKey: (result.geminiApiKey as string) || '',
                 model: model
@@ -730,22 +860,7 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         if (!response.ok) {
             const errData = await response.text();
             if (response.status === 429) {
-                forceSetUsageZero();
-
-                let isRPM = false;
-                try {
-                    const parsedErr = JSON.parse(errData);
-                    const errMsg = parsedErr?.error?.message || '';
-                    if (errMsg.includes('RPM') || errMsg.includes('Requests per minute')) {
-                        isRPM = true;
-                    }
-                } catch (e) { }
-
-                if (isRPM) {
-                    throw new Error('1分間あたりのリクエスト数制限に達しました。数十秒待ってから再度お試しください。');
-                } else {
-                    throw new Error('1日あたりのリクエスト上限、または同時実行数制限に達しました。しばらく待ってから再度お試しください。');
-                }
+                throw new Error('[Google AI Studio] Resource exhausted (429). Please try another model.');
             } else if (response.status === 401) {
                 throw new Error('APIキーが無効です。設定画面で再確認してください。');
             }
@@ -998,6 +1113,7 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
 
         const prompt = buildWordPrompt(word, mode);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+        console.log('[Background] Fetching Gemini API:', url.replace(apiKey, 'AIza...')); // APIキーは伏せる
 
         const response = await fetch(url, {
             method: 'POST',
@@ -1015,23 +1131,7 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
         if (!response.ok) {
             const errData = await response.text();
             if (response.status === 429) {
-                forceSetUsageZero();
-                broadcastUsage(0);
-
-                let isRPM = false;
-                try {
-                    const parsedErr = JSON.parse(errData);
-                    const errMsg = parsedErr?.error?.message || '';
-                    if (errMsg.includes('RPM') || errMsg.includes('Requests per minute')) {
-                        isRPM = true;
-                    }
-                } catch (e) { }
-
-                if (isRPM) {
-                    throw new Error('1分間あたりのリクエスト数制限に達しました。数十秒待ってから再度お試しください。');
-                } else {
-                    throw new Error('1日あたりのリクエスト上限に達しました。しばらく待ってから再度お試しください。');
-                }
+                throw new Error(`[Google AI Studio] Resource exhausted (429). Please try another model. Details: ${errData}`);
             }
             throw new Error(`API Error ${response.status}`);
         }
