@@ -273,7 +273,11 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
+<<<<<<< HEAD
     const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.0-flash');
+=======
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -308,10 +312,20 @@ function App() {
     const [selectedVoice, setSelectedVoice] = useState('Kore');
     const [isLoadingTTS, setIsLoadingTTS] = useState(false);
 
+<<<<<<< HEAD
     const isSpeakingRef = useRef(false);
     const activePlayingIndexRef = useRef<number | null>(null);
     // そのドキュメントでTTSを利用したか（1回のみカウント用）
     const documentTTSUsedRef = useRef(false);
+=======
+    // stale closure 防止: DOM イベントハンドラから最新値を参照するためのref
+    const isSpeakingRef = useRef(false);
+    const activePlayingIndexRef = useRef<number | null>(null);
+    // 全行プリロード済みフラグ（新規解析・ボイス変更でリセット）
+    const preloadedRef = useRef(false);
+    // プリロード中フラグ（並列プリロードの競合防止）
+    const preloadingRef = useRef(false);
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
 
     // Tutor: 再生状態管理
     const playbackStateRef = useRef({
@@ -488,7 +502,11 @@ function App() {
             URL.revokeObjectURL(url);
         }
         ttsCacheRef.current = {};
+<<<<<<< HEAD
         documentTTSUsedRef.current = false;
+=======
+        preloadedRef.current = false;
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
         const promptMap: Record<FunctionType, string> = {
             words: PROMPT_WORDS_LONG,
             tutor: PROMPT_TUTOR,
@@ -574,10 +592,16 @@ function App() {
     // 読み上げ
     // ==========================================
 
+<<<<<<< HEAD
 
     // ボイス変更時にTTS使用履歴をリセットするかは仕様次第だが、ここではリセットしない
     useEffect(() => {
         // Voiceが変わった際でもカウント免除は継続する
+=======
+    // ボイス変更時にプリロードをリセット
+    useEffect(() => {
+        preloadedRef.current = false;
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     }, [selectedVoice]);
 
     const stopAudio = () => {
@@ -601,18 +625,26 @@ function App() {
         const key = localStorage.getItem('lingodesk_apikey');
         if (!key) throw new Error('API key not set');
 
+<<<<<<< HEAD
         // v1betaでは2.0-flash-expや一部の新しいTTSモデルが見つからないため、明示的にv1alphaを使用する
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash-tts:generateContent?key=${key}`,
+=======
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`,
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+<<<<<<< HEAD
                     systemInstruction: {
                         parts: [
                             { text: "You are a text-to-speech engine. Read the following text aloud exactly as provided, without adding any conversational filler, introductory remarks, explanations, or any other additional words." }
                         ]
                     },
+=======
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
                     contents: [{ role: 'user', parts: [{ text }] }],
                     generationConfig: {
                         responseModalities: ['AUDIO'],
@@ -651,24 +683,48 @@ function App() {
         return url;
     };
 
+<<<<<<< HEAD
     // スピーカーボタンクリック: 完全オンデマンド再生（APIカウント免除付き）
     const handleLineSpeakClick = async (lineText: string, lineIndex: number, voice: string) => {
         if (!isDone || activeFunction !== 'tutor') return;
 
         // すでにこの行が再生中なら、停止のみ行う（もう一度押したら頭出しになる）
+=======
+    // スピーカーボタンクリック: 初回は全行プリロード → 対象行を再生
+    const handleLineSpeakClick = async (lineText: string, lineIndex: number, voice: string) => {
+        if (!isDone || activeFunction !== 'tutor') return;
+
+        // トグル停止: 同じ行を再クリック → 停止
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
         if (isSpeakingRef.current && activePlayingIndexRef.current === lineIndex) {
             stopAudio();
             return;
         }
 
+<<<<<<< HEAD
         stopAudio();  // 別の行が鳴っていたら確実にとめる
         if (!lineText) return;
 
         // --- 再生処理の開始 ---
+=======
+        stopAudio();
+        if (!lineText) return;
+
+        // プリロード中に別のスピーカーが押された場合はガード
+        if (preloadingRef.current) return;
+
+        // TTS日次制限チェック（プリロード未済 かつ キャッシュなしの場合のみ）
+        if (!preloadedRef.current && getTTSRemaining() <= 0) {
+            setErrorMessage(`本日のTTS音声変換は${TTS_DAILY_LIMIT}回の上限に達しました。明日リセットされます。`);
+            return;
+        }
+
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
         isSpeakingRef.current = true;
         activePlayingIndexRef.current = lineIndex;
         playbackStateRef.current.isPlaying = true;
 
+<<<<<<< HEAD
         // すでにキャッシュがあればそこから再生（カウント減らさず即再生）
         let url = ttsCacheRef.current[`${voice}_${lineText}`];
         if (url) {
@@ -735,6 +791,57 @@ function App() {
     };
 
 
+=======
+        // 初回: 全行の音声を並列プリロード（1回のプリロード = TTS 1回分としてカウント）
+        if (!preloadedRef.current) {
+            preloadingRef.current = true;
+            setIsLoadingTTS(true);
+
+            const allBtns = Array.from(document.querySelectorAll<HTMLElement>('.line-speak-btn'));
+            const allTexts = [...new Set(
+                allBtns
+                    .map(btn => decodeURIComponent(btn.getAttribute('data-line-text') || ''))
+                    .filter(t => t.length > 0)
+            )];
+
+            const results = await Promise.allSettled(allTexts.map(t => fetchTTSAudio(t, voice)));
+
+            preloadingRef.current = false;
+            setIsLoadingTTS(false);
+
+            if (!playbackStateRef.current.isPlaying) return;
+
+            // 全て失敗した場合はエラー表示（リトライ可能にするためpreloadedRefはfalseのまま）
+            const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+            if (failed.length === results.length) {
+                const reason = failed[0]?.reason as Error;
+                setErrorMessage(`音声生成エラー: ${reason?.message || '不明なエラー'}`);
+                stopAudio();
+                return;
+            }
+
+            // プリロード成功: TTS使用を1回としてカウント
+            incrementTTSUsage();
+            preloadedRef.current = true;
+        }
+
+        // キャッシュから再生
+        const url = ttsCacheRef.current[`${voice}_${lineText}`];
+        if (!url) {
+            setErrorMessage('この行の音声生成に失敗しました。もう一度お試しください。');
+            stopAudio();
+            preloadedRef.current = false; // リトライ許可
+            return;
+        }
+
+        const audio = new Audio(url);
+        playbackStateRef.current.audioElement = audio;
+        audio.onended = () => stopAudio();
+        audio.onerror = () => stopAudio();
+        audio.play().catch(() => stopAudio());
+    };
+
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     // Reactイベント外（DOM注入）からの呼び出し対応
     useEffect(() => {
         const handleTutorLineSpeakClick = (e: MouseEvent) => {

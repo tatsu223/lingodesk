@@ -10,6 +10,13 @@ const FONT_OPTIONS = [
 
 // AI Studioの表示名からモデルIDへの基本マッピング (English Words と一致させる)
 const MODEL_ID_MAP: Record<string, string> = {
+<<<<<<< HEAD
+=======
+    'Gemini 3 Flash': 'gemini-3-flash-preview',
+    'Gemini 2.5 Flash Lite': 'gemini-2.5-flash-lite',
+    'Gemini 2.5 Flash': 'gemini-2.5-flash',
+    'Gemini 2.5 Pro': 'gemini-2.5-pro',
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     'Gemini 2.0 Flash': 'gemini-2.0-flash',
     'Gemini 2.0 Flash-Lite': 'gemini-2.0-flash-lite-preview-02-05',
     'Gemini 2.0 Pro': 'gemini-2.0-pro-exp-02-05',
@@ -36,15 +43,24 @@ const getModelId = (studioName: string) => {
 
 function App() {
     const [apiKey, setApiKey] = useState('');
+<<<<<<< HEAD
     const [model, setModel] = useState('gemini-2.0-flash');
+=======
+    const [model, setModel] = useState('gemini-2.5-flash');
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     const [geminiDailyLimit, setGeminiDailyLimit] = useState(20);
     const [fontSize, setFontSize] = useState(14);
     const [fontFamily, setFontFamily] = useState("'Noto Sans JP', 'Segoe UI', sans-serif");
     const [displayMode, setDisplayMode] = useState<'popup' | 'window'>('popup');
     const [availableModels, setAvailableModels] = useState<{ id: string; studioName: string; rpd: string }[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
+<<<<<<< HEAD
     const [showApiKey, setShowApiKey] = useState(false);
 
+=======
+    const [isSyncingRPD, setIsSyncingRPD] = useState(false);
+    const [showApiKey, setShowApiKey] = useState(false);
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [selectedStudioName, setSelectedStudioName] = useState('');
 
@@ -120,8 +136,12 @@ function App() {
     };
 
     const syncRPDFromAIStudio = async (targetModel: string): Promise<number | null> => {
+<<<<<<< HEAD
         // 自動同期ウィンドウ（ステルスウィンドウ）がバックグラウンドで無効化されたため、
         // ここでは以前のキャッシュがある場合のみ同期を試み、それ以外は現在の制限値を維持します。
+=======
+        // すでにモデル一覧として取得済みのデータがあればそちらを優先（高速化と正確性）
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
         const cached = availableModels.find(m => m.id === targetModel);
         if (cached && cached.rpd) {
             const match = cached.rpd.match(/(\d+)\s*\/\s*(\d+)/);
@@ -141,6 +161,7 @@ function App() {
             }
         }
 
+<<<<<<< HEAD
         // バックグラウンドでの自動ウィンドウ作成は廃止されたため、
         // キャッシュがない場合は現在の設定値をそのまま返します。
         console.log('[Popup] auto-sync skipped for:', targetModel);
@@ -148,6 +169,28 @@ function App() {
     };
 
 
+=======
+        if (isSyncingRPD) return null;
+        setIsSyncingRPD(true);
+        try {
+            return new Promise((resolve) => {
+                chrome.runtime.sendMessage({ type: 'SYNC_RPD_REQUEST', model: targetModel }, (response) => {
+                    const rpd = response?.rpd;
+                    if (rpd !== undefined && rpd !== null) {
+                        setGeminiDailyLimit(rpd);
+                    }
+                    setIsSyncingRPD(false);
+                    resolve(rpd);
+                });
+            });
+        } catch (error) {
+            console.error('[SyncRPD] Error:', error);
+            setIsSyncingRPD(false);
+            return null;
+        }
+    };
+
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
 
