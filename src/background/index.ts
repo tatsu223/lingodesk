@@ -372,8 +372,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
 });
 
-const AI_STUDIO_URL = "https://aistudio.google.com/rate-limit?timeRange=last-1-day&hl=ja&project=gen-lang-client-0006121659";
-
 // AI Studioから利用可能な全ての有効なモデル（Gemini系 かつ RPD制限あり）を取得する
 async function fetchAllValidModelsFromAIStudio() {
     console.log('[Background] fetchAllValidModelsFromAIStudio called (auto-sync disabled to prevent popups)');
