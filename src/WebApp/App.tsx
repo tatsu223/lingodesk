@@ -494,6 +494,24 @@ function App() {
         }, 1500);
     };
 
+    // ブラウザの戻るボタン対策
+    useEffect(() => {
+        if (view !== 'main') {
+            window.history.pushState(null, '', window.location.href);
+        }
+    }, [view]);
+
+    useEffect(() => {
+        const handlePopState = () => {
+            setView('main');
+            setResultContent('');
+            setActiveFunction(null);
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
+
     // ==========================================
     // 表示用ヘルパー
     // ==========================================
