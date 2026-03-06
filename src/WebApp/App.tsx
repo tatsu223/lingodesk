@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BookOpen, Search, Loader2, Sparkles, Settings, ArrowLeft, Key, ChevronDown } from 'lucide-react';
+import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown } from 'lucide-react';
 import {
     analyzeTextStream,
     listAvailableModels,
@@ -59,32 +59,6 @@ function incrementModelUsage(modelId: string) {
     return getModelRemainingRPD(modelId);
 }
 
-// ==========================================
-// TTS日次使用制限（1日10回）
-// ==========================================
-const TTS_DAILY_LIMIT = 10;
-
-function getTTSUsageToday(): number {
-    const raw = localStorage.getItem('lingodesk_tts_usage');
-    if (!raw) return 0;
-    try {
-        const data = JSON.parse(raw);
-        const today = getPacificDateString();
-        return data.date === today ? data.count : 0;
-    } catch { return 0; }
-}
-
-function incrementTTSUsage(): number {
-    const today = getPacificDateString();
-    const current = getTTSUsageToday();
-    const newCount = current + 1;
-    localStorage.setItem('lingodesk_tts_usage', JSON.stringify({ date: today, count: newCount }));
-    return newCount;
-}
-
-function getTTSRemaining(): number {
-    return Math.max(0, TTS_DAILY_LIMIT - getTTSUsageToday());
-}
 
 // ==========================================
 // Markdownフォーマッタ
@@ -200,29 +174,15 @@ function formatMarkdown(text: string, showChunks: boolean = true): string {
     return parts.join('');
 }
 
-function renderBlockquote(lines: { text: string; globalWordIdx: number }[], showChunks: boolean, startIdx: number = 0): string {
-    const content = lines.map((l, idx) => {
+function renderBlockquote(lines: { text: string; globalWordIdx: number }[], showChunks: boolean, _startIdx: number = 0): string {
+    const content = lines.map((l) => {
         let escaped = escapeHtml(l.text);
         if (showChunks) {
             escaped = escaped.replace(/／/g, '<span class="chunk-slash">／</span>');
         } else {
             escaped = escaped.replace(/／/g, ' ');
         }
-
-        // TTS用: ／ を除いたプレーンな英文テキスト
-        const plainText = l.text.replace(/／/g, ' ').replace(/\s+/g, ' ').trim();
-        const globalIdx = startIdx + idx;
-
-        // スピーカーアイコン (カスタム SVG ボタン)
-        const speakerSvg = `
-            <svg class="icon-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            </svg>
-        `;
-
-        return `<div class="tutor-line"><button class="line-speak-btn" data-line-idx="${globalIdx}" data-line-text="${encodeURIComponent(plainText)}" title="この行を再生">${speakerSvg}</button><span>${escaped}</span></div>`;
+        return `<div class="tutor-line"><span>${escaped}</span></div>`;
     }).join('');
     return `<blockquote class="result-blockquote tutor-blockquote">${content}</blockquote>`;
 }
@@ -273,7 +233,7 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
-    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.0-flash');
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -291,34 +251,6 @@ function App() {
     // Words: Long/Short切替
     const [wordsMode, setWordsMode] = useState<'long' | 'short'>('long');
     const [wordsFullResult, setWordsFullResult] = useState('');
-
-    // Tutor: Gemini TTS ナレーター
-    const GEMINI_VOICES = [
-        { name: 'Kore', label: 'Kore (Balanced)' },
-        { name: 'Zephyr', label: 'Zephyr (Deep)' },
-        { name: 'Puck', label: 'Puck (Cheerful)' },
-        { name: 'Charon', label: 'Charon (Formal)' },
-        { name: 'Leda', label: 'Leda (Soft)' },
-        { name: 'Aoede', label: 'Aoede (Expressive)' },
-        { name: 'Callirrhoe', label: 'Callirrhoe' },
-        { name: 'Enceladus', label: 'Enceladus' },
-        { name: 'Iapetus', label: 'Iapetus' },
-        { name: 'Algieba', label: 'Algieba' },
-    ];
-    const [selectedVoice, setSelectedVoice] = useState('Kore');
-    const [isLoadingTTS, setIsLoadingTTS] = useState(false);
-
-    const isSpeakingRef = useRef(false);
-    const activePlayingIndexRef = useRef<number | null>(null);
-    // そのドキュメントでTTSを利用したか（1回のみカウント用）
-    const documentTTSUsedRef = useRef(false);
-
-    // Tutor: 再生状態管理
-    const playbackStateRef = useRef({
-        isPlaying: false,
-        audioElement: null as HTMLAudioElement | null,
-    });
-    const ttsCacheRef = useRef<Record<string, string>>({});
 
     const resultRef = useRef<HTMLDivElement>(null);
 
@@ -481,14 +413,6 @@ function App() {
         setIsLoading(true);
         setIsDone(false);
         setErrorMessage('');
-        stopAudio();
-
-        // キャッシュのクリア（必要に応じて）
-        for (const url of Object.values(ttsCacheRef.current)) {
-            URL.revokeObjectURL(url);
-        }
-        ttsCacheRef.current = {};
-        documentTTSUsedRef.current = false;
         const promptMap: Record<FunctionType, string> = {
             words: PROMPT_WORDS_LONG,
             tutor: PROMPT_TUTOR,
@@ -571,227 +495,6 @@ function App() {
     };
 
     // ==========================================
-    // 読み上げ
-    // ==========================================
-
-
-    // ボイス変更時にTTS使用履歴をリセットするかは仕様次第だが、ここではリセットしない
-    useEffect(() => {
-        // Voiceが変わった際でもカウント免除は継続する
-    }, [selectedVoice]);
-
-    const stopAudio = () => {
-        playbackStateRef.current.isPlaying = false;
-        if (playbackStateRef.current.audioElement) {
-            playbackStateRef.current.audioElement.pause();
-            playbackStateRef.current.audioElement.currentTime = 0;
-            playbackStateRef.current.audioElement = null;
-        }
-        isSpeakingRef.current = false;
-        activePlayingIndexRef.current = null;
-        setIsLoadingTTS(false);
-    };
-
-    // TTS音声をキャッシュ付きで取得（gemini-2.0-flash-exp は responseModalities:AUDIO をサポート）
-    // ※TTS使用回数のカウントはhandleLineSpeakClick側で一括管理（ここではカウントしない）
-    const fetchTTSAudio = async (text: string, voice: string): Promise<string> => {
-        const cacheKey = `${voice}_${text}`;
-        if (ttsCacheRef.current[cacheKey]) return ttsCacheRef.current[cacheKey];
-
-        const key = localStorage.getItem('lingodesk_apikey');
-        if (!key) throw new Error('API key not set');
-
-        // v1betaでは2.0-flash-expや一部の新しいTTSモデルが見つからないため、明示的にv1alphaを使用する
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash-tts:generateContent?key=${key}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    systemInstruction: {
-                        parts: [
-                            { text: "You are a text-to-speech engine. Read the following text aloud exactly as provided, without adding any conversational filler, introductory remarks, explanations, or any other additional words." }
-                        ]
-                    },
-                    contents: [{ role: 'user', parts: [{ text }] }],
-                    generationConfig: {
-                        responseModalities: ['AUDIO'],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: { voiceName: voice }
-                            }
-                        }
-                    }
-                })
-            }
-        );
-
-        if (!response.ok) {
-            const errBody = await response.text().catch(() => '');
-            throw new Error(`TTS API ${response.status}: ${errBody.slice(0, 200)}`);
-        }
-
-        const data = await response.json();
-        const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-        if (!audioData?.data) {
-            const part = data?.candidates?.[0]?.content?.parts?.[0];
-            const errMsg = data?.error?.message || JSON.stringify(part).slice(0, 150);
-            throw new Error(`No audio in response: ${errMsg}`);
-        }
-
-        const binaryStr = atob(audioData.data);
-        const pcmBytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            pcmBytes[i] = binaryStr.charCodeAt(i);
-        }
-
-        const wavBlob = pcmToWav(pcmBytes, 24000, 1, 16);
-        const url = URL.createObjectURL(wavBlob);
-        ttsCacheRef.current[cacheKey] = url;
-        return url;
-    };
-
-    // スピーカーボタンクリック: 完全オンデマンド再生（APIカウント免除付き）
-    const handleLineSpeakClick = async (lineText: string, lineIndex: number, voice: string) => {
-        if (!isDone || activeFunction !== 'tutor') return;
-
-        // すでにこの行が再生中なら、停止のみ行う（もう一度押したら頭出しになる）
-        if (isSpeakingRef.current && activePlayingIndexRef.current === lineIndex) {
-            stopAudio();
-            return;
-        }
-
-        stopAudio();  // 別の行が鳴っていたら確実にとめる
-        if (!lineText) return;
-
-        // --- 再生処理の開始 ---
-        isSpeakingRef.current = true;
-        activePlayingIndexRef.current = lineIndex;
-        playbackStateRef.current.isPlaying = true;
-
-        // すでにキャッシュがあればそこから再生（カウント減らさず即再生）
-        let url = ttsCacheRef.current[`${voice}_${lineText}`];
-        if (url) {
-            playAudioUrl(url);
-            return;
-        }
-
-        // 新規取得の場合：このドキュメントで初のTTS利用なら日次制限をチェック
-        if (!documentTTSUsedRef.current) {
-            if (getTTSRemaining() <= 0) {
-                setErrorMessage(`本日のTTS音声変換は${TTS_DAILY_LIMIT}回の上限に達しました。明日リセットされます。`);
-                stopAudio();
-                return;
-            }
-        }
-
-        setIsLoadingTTS(true);
-
-        try {
-            // 対象行の音声だけをフェッチ
-            url = await fetchTTSAudio(lineText, voice);
-
-            // このドキュメントでの初回生成ならカウントアップ（API消費1回分とみなす）
-            if (!documentTTSUsedRef.current) {
-                incrementTTSUsage();
-                documentTTSUsedRef.current = true;
-            }
-
-            // fetch 待ち中にユーザーが停止等を行っていないか確認
-            if (!playbackStateRef.current.isPlaying || activePlayingIndexRef.current !== lineIndex) {
-                setIsLoadingTTS(false);
-                return;
-            }
-
-            playAudioUrl(url);
-
-        } catch (error: any) {
-            const msg = error?.message || '不明なエラー';
-            setErrorMessage(`音声生成エラー: ${msg}`);
-            stopAudio();
-        } finally {
-            setIsLoadingTTS(false);
-        }
-    };
-
-    const playAudioUrl = (url: string) => {
-        const audio = new Audio(url);
-        playbackStateRef.current.audioElement = audio;
-
-        // はじめから再生（常にcurrentTime=0であることを保証）
-        audio.currentTime = 0;
-
-        audio.onended = () => stopAudio();
-        audio.onerror = (e) => {
-            console.error('Audio playback error', e);
-            setErrorMessage('音声データのデコードに失敗したか、形式がサポートされていません。');
-            stopAudio();
-        };
-        audio.play().catch((err) => {
-            console.error('Audio play caught error:', err);
-            setErrorMessage(`音声の再生が失敗またはブロックされました: ${err.message}`);
-            stopAudio();
-        });
-    };
-
-
-    // Reactイベント外（DOM注入）からの呼び出し対応
-    useEffect(() => {
-        const handleTutorLineSpeakClick = (e: MouseEvent) => {
-            const btn = (e.target as HTMLElement).closest('.line-speak-btn');
-            if (btn) {
-                const lineIdx = parseInt(btn.getAttribute('data-line-idx') || '0', 10);
-                const lineText = decodeURIComponent(btn.getAttribute('data-line-text') || '');
-                handleLineSpeakClick(lineText, lineIdx, selectedVoice);
-            }
-        };
-
-        if (view === 'result' && activeFunction === 'tutor') {
-            document.addEventListener('click', handleTutorLineSpeakClick);
-            return () => document.removeEventListener('click', handleTutorLineSpeakClick);
-        }
-    }, [view, activeFunction, isDone, selectedVoice]);
-
-    // PCM → WAV変換ヘルパー
-    function pcmToWav(pcmData: Uint8Array, sampleRate: number, numChannels: number, bitsPerSample: number): Blob {
-        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-        const blockAlign = numChannels * (bitsPerSample / 8);
-        const dataSize = pcmData.length;
-        const buffer = new ArrayBuffer(44 + dataSize);
-        const view = new DataView(buffer);
-
-        // RIFF header
-        writeString(view, 0, 'RIFF');
-        view.setUint32(4, 36 + dataSize, true);
-        writeString(view, 8, 'WAVE');
-
-        // fmt chunk
-        writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true); // PCM
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-
-        // data chunk
-        writeString(view, 36, 'data');
-        view.setUint32(40, dataSize, true);
-
-        const wavBytes = new Uint8Array(buffer);
-        wavBytes.set(pcmData, 44);
-
-        return new Blob([wavBytes], { type: 'audio/wav' });
-    }
-
-    function writeString(view: DataView, offset: number, str: string) {
-        for (let i = 0; i < str.length; i++) {
-            view.setUint8(offset + i, str.charCodeAt(i));
-        }
-    }
-
-    // ==========================================
     // 表示用ヘルパー
     // ==========================================
     const displayModel = MODEL_DISPLAY_NAMES[model] || model;
@@ -867,8 +570,6 @@ function App() {
                 <header className="lingodesk-header result-header">
                     <div className="header-brand">
                         <button className="back-btn" onClick={() => {
-                            speechSynthesis.cancel();
-                            stopAudio();
                             setView('main');
                             setResultContent('');
                             setActiveFunction(null);
@@ -891,14 +592,6 @@ function App() {
                                 {wordsMode === 'long' ? '📖 Long' : '📋 Short'}
                             </button>
                         )}
-                        {/* Tutor: ナレーター選択 (解析中でも出す) */}
-                        {activeFunction === 'tutor' && (
-                            <select className="voice-select" value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)}>
-                                {GEMINI_VOICES.map((v) => (
-                                    <option key={v.name} value={v.name}>{v.label}</option>
-                                ))}
-                            </select>
-                        )}
                         <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
                             <div className="usage-bar">
                                 <div className="usage-fill" style={{ width: `${usagePercent}%`, backgroundColor: usageColor }} />
@@ -913,14 +606,6 @@ function App() {
                 </div>
 
                 <main className="result-main" ref={resultRef}>
-                    {isLoadingTTS && (
-                        <div className="audio-loading-overlay">
-                            <div className="loader-box">
-                                <Loader2 className="spin-icon" size={24} />
-                                <span>Generating Audio...</span>
-                            </div>
-                        </div>
-                    )}
                     {errorMessage ? (
                         <div className="error-display">
                             <div className="error-icon">⚠️</div>

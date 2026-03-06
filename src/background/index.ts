@@ -166,7 +166,11 @@ chrome.storage.onChanged.addListener((changes) => {
             const newLimit = changes.geminiDailyLimit.newValue;
             if (newLimit) {
                 chrome.storage.local.get(['usageData', 'geminiModel'], (result) => {
+<<<<<<<<< Temporary merge branch 1
                     const model = result.geminiModel as string || 'gemini-2.5-flash';
+=========
+                    const model = result.geminiModel as string || 'gemini-2.0-flash';
+>>>>>>>>> Temporary merge branch 2
                     const data = (result.usageData as UsageData) || { date: new Date().toLocaleDateString('ja-JP'), count: 0, models: {} };
                     const modelCount = data.models?.[model]?.count || 0;
 
@@ -232,7 +236,11 @@ async function checkAndUpgradeModel() {
         }
 
         // 旧世代（1.5等）の場合のみ、利用可能な最新Flashへ引き上げる
+<<<<<<<<< Temporary merge branch 1
         const flashPriority = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+=========
+        const flashPriority = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+>>>>>>>>> Temporary merge branch 2
         for (let i = 0; i < flashPriority.length; i++) {
             const candidate = flashPriority[i];
             if (models.includes(candidate)) {
@@ -376,6 +384,7 @@ const AI_STUDIO_URL = "https://aistudio.google.com/rate-limit?timeRange=last-1-d
 
 // AI Studioから利用可能な全ての有効なモデル（Gemini系 かつ RPD制限あり）を取得する
 async function fetchAllValidModelsFromAIStudio() {
+<<<<<<<<< Temporary merge branch 1
     console.log('[Background] Fetching models via stealth window...');
     let winId: number | null = null;
 
@@ -564,6 +573,21 @@ async function syncRPDFromAIStudio(targetModel: string) {
     }
 }
 
+=========
+    console.log('[Background] fetchAllValidModelsFromAIStudio called (auto-sync disabled to prevent popups)');
+    // ユーザー報告の勝手なポップアップを防ぐため、自動同期ウィンドウの作成を停止します。
+    // 必要に応じて、将来的に別の非侵襲的な方法（SDKのエラーから学習するなど）を検討します。
+    return [];
+}
+
+async function syncRPDFromAIStudio(targetModel: string) {
+    console.log('[Background] syncRPDFromAIStudio called for:', targetModel, '(auto-sync disabled)');
+    // 同様に自動同期ウィンドウの作成を停止します。
+    return null;
+}
+
+
+>>>>>>>>> Temporary merge branch 2
 // 外部からのメッセージ（別の拡張機能からの同期）
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (sender.id !== OTHER_EXTENSION_ID) return;
@@ -615,7 +639,11 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
             const today = new Date().toLocaleDateString('ja-JP');
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
+<<<<<<<<< Temporary merge branch 1
             const model = result.geminiModel as string || 'gemini-2.5-flash';
+=========
+            const model = result.geminiModel as string || 'gemini-2.0-flash';
+>>>>>>>>> Temporary merge branch 2
             const modelCount = data.models?.[model]?.count || 0;
 
             sendResponse({
@@ -717,7 +745,11 @@ async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | n
             data.history = data.history.filter(timestamp => timestamp > oneMinuteAgo);
 
             const { geminiModel, geminiDailyLimit } = result;
+<<<<<<<<< Temporary merge branch 1
             const modelName = forcedModelName || (geminiModel as string) || 'gemini-2.5-flash';
+=========
+            const modelName = forcedModelName || (geminiModel as string) || 'gemini-2.0-flash';
+>>>>>>>>> Temporary merge branch 2
             if (!data.models[modelName]) data.models[modelName] = { count: 0 };
 
             // 強制的なカウント更新があれば適用 (AI Studioからの同期など)
