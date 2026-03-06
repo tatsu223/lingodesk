@@ -1,5 +1,5 @@
 /// <reference types="chrome" />
-import { SYSTEM_PROMPT, getPacificDateString } from '../lib/gemini';
+import { SYSTEM_PROMPT, getLocalDateString, TEXT_OUTPUT_MODELS } from '../lib/gemini';
 
 const MENU_ID = "gemini-english-tutor-analyze";
 
@@ -206,55 +206,6 @@ function processNormalPopup(text: string, tabId: number) {
     });
 }
 
-// 起動時に最新モデルをチェックしてアップグレードを促す（将来用）
-// @ts-ignore unused
-async function checkAndUpgradeModel() {
-    const settings = await getSettings();
-    if (!settings.apiKey) return;
-
-    try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${settings.apiKey}`
-        );
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const models = (data.models || [])
-            .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-            .map((m: any) => m.name.replace('models/', ''));
-
-        const currentModel = settings.model;
-
-        // 【重要】ユーザーの選択を尊重：2.5/3シリーズやPro系を使っている場合は自動変更しない
-        if (currentModel.includes('2.5') || currentModel.includes('3-flash') || currentModel.includes('pro')) {
-            console.log(`[Background] Modern model ${currentModel} already in use. Skipping auto-upgrade.`);
-            return;
-        }
-
-        // 旧世代（1.5等）の場合のみ、利用可能な最新Flashへ引き上げる
-        const flashPriority = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-        for (let i = 0; i < flashPriority.length; i++) {
-            const candidate = flashPriority[i];
-            if (models.includes(candidate)) {
-                if (candidate !== currentModel) {
-                    console.log(`[Background] Legacy model detected: ${currentModel}. Upgrading to ${candidate}.`);
-                    await chrome.storage.local.set({ geminiModel: candidate });
-                    refreshUsageOnly(false);
-                }
-                break;
-            }
-        }
-    } catch (err) {
-        console.error('[Background] Failed to check for model updates:', err);
-    }
-}
-
-// 以前の top-level 呼び出しは onInstalled/onStartup に移行
-// checkAndUpgradeModel();
-// setInterval(checkAndUpgradeModel, 30 * 60 * 1000);
-// refreshUsageOnly(false);
-
-
 // メッセージ受信
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'ANALYZE_TEXT_STREAM' && sender.tab?.id) {
@@ -340,55 +291,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const targetTabId = sender.tab?.id || activeSourceTabId;
         handleWordStreamAnalysis(message.word, message.mode, targetTabId || null);
     }
-    if (message.type === 'SYNC_RPD_REQUEST') {
-        console.log('[Background] Received SYNC_RPD_REQUEST (Manual only):', message.model);
-        syncRPDFromAIStudio(message.model).then((rpd) => {
-            sendResponse({ rpd });
-        }).catch(err => {
-            console.error('[Background] syncRPDFromAIStudio error:', err);
-            sendResponse({ rpd: null });
-        });
-        return true;
-    }
-    if (message.type === 'SYNC_RPD_DATA') {
-        console.log('[Background] Received SYNC_RPD_DATA (Local sync only):', message.used, '/', message.limit, 'for model:', message.model);
-        refreshUsageWithCount(false, message.used, message.limit, message.model).then(() => {
-            sendResponse({ success: true });
-        });
-        return true;
-    }
     return false;
 });
 
-async function syncRPDFromAIStudio(targetModel: string) {
-    console.log('[Background] syncRPDFromAIStudio (Manual Triggered) for:', targetModel);
-    // UI側の要望により、回数確認時のみ一瞬ウィンドウを立ち上げて同期する旧ロジックを最小限で再現します。
-    // 手動操作にのみ反応するため、勝手に立ち上がることはありません。
-
-    return new Promise((resolve) => {
-        const url = 'https://aistudio.google.com/app/plan';
-        chrome.windows.create({
-            url,
-            type: 'popup',
-            width: 100,
-            height: 100,
-            focused: true // 手動操作なのでフォーカスを当てる（不要なバックグラウンド動作を避ける）
-        }, (win) => {
-            // content script (AI Studio用) がデータを読み取って SYNC_RPD_DATA を送ってくるのを待つ
-            // 一定時間経過しても同期されない場合はタイムアウト
-            setTimeout(() => {
-                if (win?.id) chrome.windows.remove(win.id);
-                resolve(null);
-            }, 5000);
-        });
-    });
-}
 // 外部からのメッセージ（別の拡張機能からの同期）
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (sender.id !== OTHER_EXTENSION_ID) return;
 
     if (message.type === 'EXTERNAL_SYNC_USAGE') {
-        const today = getPacificDateString();
+        const today = getLocalDateString();
         // 入力バリデーション
         const msgCount = typeof message.count === 'number' ? message.count : 0;
         const msgModelCount = typeof message.modelCount === 'number' ? message.modelCount : 0;
@@ -432,7 +343,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         }
     } else if (message.type === 'GET_USAGE') {
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
-            const today = getPacificDateString();
+            const today = getLocalDateString();
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
             const model = result.geminiModel as string || 'gemini-2.5-flash';
             const modelCount = data.models?.[model]?.count || 0;
@@ -454,7 +365,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 async function syncOnStartup() {
     chrome.runtime.sendMessage(OTHER_EXTENSION_ID, { type: 'GET_USAGE' }, (response) => {
         if (chrome.runtime.lastError || !response) return;
-        const today = getPacificDateString();
+        const today = getLocalDateString();
         if (response.date === today) {
             chrome.storage.local.get(['usageData'], (result) => {
                 let data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
@@ -514,7 +425,7 @@ async function updateGeminiUsage() {
 }
 
 async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | null = null, forcedLimit: number | null = null, forcedModelName: string | null = null) {
-    const today = getPacificDateString();
+    const today = getLocalDateString();
     const now = Date.now();
     const oneMinuteAgo = now - 60000;
 
@@ -622,20 +533,23 @@ function broadcastUsage(usage: number) {
 
 
 /**
- * API側が制限（429）を返した際、手元のカウントに関わらず強制的に表示を0%（実効制限中）にする。
- * これにより「%はあるのに使えない」という表示の不整合を解消する。
+ * API側が制限（429）を返した際の処理は WebApp 側に一任するため、
+ * バックグラウンドでの判定や強制リセットは行いません。
  */
-function forceSetUsageZero() {
-    chrome.storage.local.set({
-        gemini1MinUsage: 0
-    });
-}
 
 // 設定取得
 function getSettings(): Promise<{ apiKey: string; model: string }> {
     return new Promise((resolve) => {
         chrome.storage.local.get(['geminiApiKey', 'geminiModel'], (result) => {
-            const model = (result.geminiModel as string) || 'gemini-2.5-flash';
+            let model = (result.geminiModel as string) || 'gemini-2.5-flash';
+            
+            // 安全策: 取得したモデルIDが TEXT_OUTPUT_MODELS に含まれていない場合は、
+            // 404エラーを避けるためにデフォルトモデルにリセットする
+            if (!TEXT_OUTPUT_MODELS.includes(model)) {
+                console.warn('[Background] Invalid model ID detected in storage, resetting to default:', model);
+                model = 'gemini-2.5-flash';
+            }
+
             resolve({
                 apiKey: (result.geminiApiKey as string) || '',
                 model: model
@@ -696,7 +610,8 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
     }
 
     activeAnalysisController = new AbortController();
-    const { signal } = activeAnalysisController;
+    const myController = activeAnalysisController;
+    const { signal } = myController;
 
     await updateAnalysisState({
         sourceText: text,
@@ -730,22 +645,7 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         if (!response.ok) {
             const errData = await response.text();
             if (response.status === 429) {
-                forceSetUsageZero();
-
-                let isRPM = false;
-                try {
-                    const parsedErr = JSON.parse(errData);
-                    const errMsg = parsedErr?.error?.message || '';
-                    if (errMsg.includes('RPM') || errMsg.includes('Requests per minute')) {
-                        isRPM = true;
-                    }
-                } catch (e) { }
-
-                if (isRPM) {
-                    throw new Error('1分間あたりのリクエスト数制限に達しました。数十秒待ってから再度お試しください。');
-                } else {
-                    throw new Error('1日あたりのリクエスト上限、または同時実行数制限に達しました。しばらく待ってから再度お試しください。');
-                }
+                throw new Error('[Google AI Studio] Resource exhausted (429). Please try another model.');
             } else if (response.status === 401) {
                 throw new Error('APIキーが無効です。設定画面で再確認してください。');
             }
@@ -792,7 +692,7 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         }
         sendMsg({ type: 'ANALYSIS_ERROR', error: error.message || '解析中にエラーが発生しました。' });
     } finally {
-        if (activeAnalysisController?.signal.aborted === false) {
+        if (activeAnalysisController === myController) {
             activeAnalysisController = null;
         }
     }
@@ -980,7 +880,8 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
         activeWordAnalysisController.abort();
     }
     activeWordAnalysisController = new AbortController();
-    const { signal } = activeWordAnalysisController;
+    const myWordController = activeWordAnalysisController;
+    const { signal } = myWordController;
 
     currentWordAnalysisWord = word;
     currentWordAnalysisMode = mode;
@@ -998,6 +899,7 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
 
         const prompt = buildWordPrompt(word, mode);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+        console.log('[Background] Fetching Gemini API:', url.replace(apiKey, 'AIza...')); // APIキーは伏せる
 
         const response = await fetch(url, {
             method: 'POST',
@@ -1015,23 +917,7 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
         if (!response.ok) {
             const errData = await response.text();
             if (response.status === 429) {
-                forceSetUsageZero();
-                broadcastUsage(0);
-
-                let isRPM = false;
-                try {
-                    const parsedErr = JSON.parse(errData);
-                    const errMsg = parsedErr?.error?.message || '';
-                    if (errMsg.includes('RPM') || errMsg.includes('Requests per minute')) {
-                        isRPM = true;
-                    }
-                } catch (e) { }
-
-                if (isRPM) {
-                    throw new Error('1分間あたりのリクエスト数制限に達しました。数十秒待ってから再度お試しください。');
-                } else {
-                    throw new Error('1日あたりのリクエスト上限に達しました。しばらく待ってから再度お試しください。');
-                }
+                throw new Error(`[Google AI Studio] Resource exhausted (429). Please try another model. Details: ${errData}`);
             }
             throw new Error(`API Error ${response.status}`);
         }
@@ -1080,7 +966,7 @@ async function handleWordStreamAnalysis(word: string, mode: string, tabId: numbe
             error: error.message || '解説の生成中にエラーが発生しました。'
         });
     } finally {
-        if (activeWordAnalysisController?.signal.aborted === false) {
+        if (activeWordAnalysisController === myWordController) {
             activeWordAnalysisController = null;
         }
     }

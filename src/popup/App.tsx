@@ -17,9 +17,9 @@ function App() {
     const [fontFamily, setFontFamily] = useState("'Noto Sans JP', 'Segoe UI', sans-serif");
     const [displayMode, setDisplayMode] = useState<'popup' | 'window'>('popup');
     const [availableModels] = useState<{ id: string; studioName: string; limit: number }[]>([
-        { id: 'gemini-2.0-flash', studioName: 'Gemini 2.0 Flash', limit: 30 },
-        { id: 'gemini-1.5-flash', studioName: 'Gemini 1.5 Flash', limit: 15 },
-        { id: 'gemini-1.5-pro', studioName: 'Gemini 1.5 Pro', limit: 2 },
+        { id: 'gemini-2.5-flash', studioName: 'Gemini 2.5 Flash', limit: 20 },
+        { id: 'gemini-3-flash-preview', studioName: 'Gemini 3 Flash', limit: 20 },
+        { id: 'gemini-2.5-flash-lite', studioName: 'Gemini 2.5 Flash Lite', limit: 20 },
     ]);
     const [showApiKey, setShowApiKey] = useState(false);
     const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -151,7 +151,7 @@ function App() {
                                         type="text"
                                         value={model}
                                         onChange={(e) => setModel(e.target.value)}
-                                        placeholder="e.g. gemini-2.0-flash"
+                                        placeholder="e.g. gemini-2.5-flash"
                                     />
                                 )}
                                 <span>Available Models (Internal Only)</span>

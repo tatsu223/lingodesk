@@ -8,7 +8,7 @@ import {
     KNOWN_RPD_LIMITS,
     TEXT_OUTPUT_MODELS,
     MODEL_DISPLAY_NAMES,
-    getPacificDateString,
+    getLocalDateString,
 } from '../lib/gemini';
 import './App.css';
 
@@ -31,7 +31,7 @@ function getModelUsage(): ModelUsage {
 
 function getModelRemainingRPD(modelId: string): number {
     const usage = getModelUsage();
-    const today = getPacificDateString();
+    const today = getLocalDateString();
     const entry = usage[modelId];
     if (!entry || entry.date !== today) {
         return KNOWN_RPD_LIMITS[modelId] ?? 20;
@@ -41,7 +41,7 @@ function getModelRemainingRPD(modelId: string): number {
 
 function incrementModelUsage(modelId: string) {
     const usage = getModelUsage();
-    const today = getPacificDateString();
+    const today = getLocalDateString();
     const entry = usage[modelId];
     const limit = entry?.limit ?? KNOWN_RPD_LIMITS[modelId] ?? 20;
 
@@ -228,13 +228,14 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
-    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.0-flash');
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     // Model selection
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
+    const fetchingModelsRef = useRef(false);
     const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
     // RPD
@@ -276,7 +277,7 @@ function App() {
         const key = localStorage.getItem('lingodesk_apikey');
         if (!key) return;
 
-        const today = getPacificDateString();
+        const today = getLocalDateString();
         const usage = getModelUsage();
 
         // 日付が変わっていれば全リセット
@@ -336,15 +337,58 @@ function App() {
         }
     }, [resultContent, isDone]);
 
-    // モデル一覧取得
+    // APIキー保存時とメイン画面表示時にモデル取得
     const fetchModels = useCallback(async () => {
         const key = localStorage.getItem('lingodesk_apikey');
-        if (!key) return;
+        if (!key || fetchingModelsRef.current) return;
 
+        fetchingModelsRef.current = true;
         setLoadingModels(true);
         try {
             const models = await listAvailableModels(key);
             setAvailableModels(models);
+
+            const usage = getModelUsage();
+            const today = getLocalDateString();
+
+            // 拡張機能環境の場合はストレージから使用量を同期
+            const isExtension = typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.sendMessage;
+            if (isExtension) {
+                try {
+                    const storageData = await chrome.storage.local.get(['usageData', 'knownLimits']);
+                    const data = storageData.usageData as any;
+
+                    let changed = false;
+                    for (const m of models) {
+                        if (!usage[m] || usage[m].date !== today) {
+                            const limit = (storageData.knownLimits && (storageData.knownLimits as any)[m]) || (KNOWN_RPD_LIMITS as any)[m] || 20;
+                            const used = (data && data.models && data.models[m] && data.models[m].count) || 0;
+                            usage[m] = { date: today, used, limit };
+                            changed = true;
+                        } else if (data && data.models && data.models[m]) {
+                            usage[m].used = data.models[m].count;
+                            changed = true;
+                        }
+                    }
+                    if (changed) {
+                        localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
+                    }
+                } catch (e) {
+                    console.debug('Storage sync failed:', e);
+                }
+            } else {
+                // Web環境での初期化
+                let changed = false;
+                for (const m of models) {
+                    if (!usage[m] || usage[m].date !== today) {
+                        usage[m] = { date: today, used: 0, limit: (KNOWN_RPD_LIMITS as any)[m] || 20 };
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
+                }
+            }
 
             // 現在のモデルがリストになければ1番目にリセット
             if (models.length > 0 && !models.includes(model)) {
@@ -353,10 +397,11 @@ function App() {
             }
 
             setCurrentRPD(getModelRemainingRPD(model));
+            setErrorMessage('');
         } catch (err) {
             console.error('Failed to fetch models:', err);
-            setErrorMessage('モデル一覧の取得に失敗しました。APIキーを確認してください。');
         } finally {
+            fetchingModelsRef.current = false;
             setLoadingModels(false);
         }
     }, [model]);
@@ -370,7 +415,8 @@ function App() {
 
     // RPD切れ時の自動モデル切替
     const autoSwitchModel = useCallback(() => {
-        if (getModelRemainingRPD(model) > 0) return model;
+        const currentRemaining = getModelRemainingRPD(model);
+        if (currentRemaining > 0) return model;
 
         for (const m of TEXT_OUTPUT_MODELS) {
             if (availableModels.includes(m) && getModelRemainingRPD(m) > 0) {
@@ -392,12 +438,8 @@ function App() {
         const storedKey = localStorage.getItem('lingodesk_apikey');
         if (!storedKey) { setView('settings'); return; }
 
-        // 自動モデル切替
-        const activeModel = autoSwitchModel();
-        if (!activeModel) {
-            setErrorMessage('全てのモデルの本日のAPI使用回数が上限に達しました。明日リセットされます。');
-            return;
-        }
+        // 実行開始（事前にブロックせず、まずは試みる）
+        const activeModel = model;
 
         setActiveFunction(type);
         setView('result');
@@ -444,28 +486,34 @@ function App() {
 
             setIsDone(true);
         } catch (err: any) {
+            console.error('handleExecute Error:', err);
             const msg = err?.message || '不明なエラーが発生しました';
-            if (msg.includes('API key') || msg.includes('401') || msg.includes('403')) {
+            
+            if (msg.includes('[AUTH_ERROR]')) {
                 setErrorMessage('APIキーが無効です。設定画面でAPIキーを確認してください。');
             } else if (msg.includes('parse stream')) {
                 setErrorMessage(`解析エラー: データの受信中に問題が発生しました。インターネット接続を確認し、もう一度お試しください。(${msg})`);
-            } else if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
-                // ... (existing 429 logic)
-                incrementModelUsage(activeModel);
-                const nextModel = autoSwitchModel();
+            } else if (msg.includes('[RESOURCE_EXHAUSTED]')) {
+                // 真に 429 / Quota エラーが発生した場合のみ上限到達として扱う
+                console.log('Real 429 detected, marking model as exhausted.');
                 const usage = getModelUsage();
-                const today = getPacificDateString();
+                const today = getLocalDateString();
                 const limit = KNOWN_RPD_LIMITS[activeModel] || 20;
                 usage[activeModel] = { date: today, used: limit, limit };
                 localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
+                
+                const nextModel = autoSwitchModel();
                 if (nextModel && nextModel !== activeModel) {
-                    setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} のAPIレート制限に達しました。${MODEL_DISPLAY_NAMES[nextModel] || nextModel} に自動切替しました。もう一度お試しください。`);
+                    setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} が回数上限に達したため、${MODEL_DISPLAY_NAMES[nextModel] || nextModel} に自動で切り替えました。もう一度「English Words」または「English Tutor」ボタンを押してください。`);
                 } else {
-                    setErrorMessage('API呼び出しの上限に達しました。しばらく待ってからお試しください。');
+                    setErrorMessage('全てのモデルの本日の使用回数が上限に達しました。明日リセットされます。');
                 }
                 fetchModels();
+            } else if (msg.includes('[SAFETY_ERROR]')) {
+                setErrorMessage('安全フィルターにより内容がブロックされました。入力を調整してもう一度お試しください。');
             } else {
-                setErrorMessage(`エラー: ${msg}`);
+                // 429以外の一時的エラー（ネットワーク断、500エラー等）
+                setErrorMessage(`エラーが発生しました: ${msg.replace(/^\[.*?\]\s*/, '')}。もう一度お試しください。`);
             }
         } finally {
             setIsLoading(false);
@@ -503,7 +551,7 @@ function App() {
             setActiveFunction(null);
         };
         window.addEventListener('popstate', handlePopState);
-        return () => window.removeEventListener('popstate', handlePopState);
+        return () => { window.removeEventListener('popstate', handlePopState); }
     }, []);
 
 
@@ -629,6 +677,12 @@ function App() {
                         <div className="result-content" dangerouslySetInnerHTML={{
                             __html: formatMarkdown(displayContent, activeFunction === 'tutor' ? showChunks : true)
                         }} />
+                    ) : isDone ? (
+                        <div className="error-display">
+                            <div className="error-icon">⚠️</div>
+                            <div className="error-text">結果を取得できませんでした。モデルを変更するか、再試行してください。</div>
+                            <button className="retry-btn" onClick={() => handleExecute(activeFunction)}>再試行</button>
+                        </div>
                     ) : (
                         <div className="loading-display">
                             <div className="spinner" />
@@ -684,15 +738,11 @@ function App() {
                                 <div className="model-dropdown">
                                     <div className="model-dropdown-header">
                                         <span>Select AI Model</span>
-                                        <button className="refresh-models-btn" onClick={(e) => {
-                                            e.stopPropagation();
-                                            fetchModels();
-                                        }} title="回数を確認">反映</button>
                                     </div>
                                     {loadingModels ? (
                                         <div className="model-dropdown-loading">更新中...</div>
                                     ) : (
-                                        TEXT_OUTPUT_MODELS.map(m => {
+                                        availableModels.map(m => {
                                             const remaining = getModelRemainingRPD(m);
                                             const limit = KNOWN_RPD_LIMITS[m] ?? 20;
                                             const isSelected = m === model;
@@ -704,7 +754,7 @@ function App() {
                                                     className={`model-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        if (isDisabled) return;
+                                                        // 残り0でも選択を許可（Late Binding方式: 実際に叩いてみるまで制限を確定させない）
                                                         setModel(m);
                                                         localStorage.setItem('lingodesk_model', m);
                                                         setCurrentRPD(remaining);
