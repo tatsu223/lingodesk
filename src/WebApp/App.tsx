@@ -233,7 +233,15 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
     const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.0-flash');
+=======
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
+>>>>>>>>> Temporary merge branch 2
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -251,6 +259,50 @@ function App() {
     // Words: Long/Short切替
     const [wordsMode, setWordsMode] = useState<'long' | 'short'>('long');
     const [wordsFullResult, setWordsFullResult] = useState('');
+
+    // Tutor: Gemini TTS ナレーター
+    const GEMINI_VOICES = [
+        { name: 'Kore', label: 'Kore (Balanced)' },
+        { name: 'Zephyr', label: 'Zephyr (Deep)' },
+        { name: 'Puck', label: 'Puck (Cheerful)' },
+        { name: 'Charon', label: 'Charon (Formal)' },
+        { name: 'Leda', label: 'Leda (Soft)' },
+        { name: 'Aoede', label: 'Aoede (Expressive)' },
+        { name: 'Callirrhoe', label: 'Callirrhoe' },
+        { name: 'Enceladus', label: 'Enceladus' },
+        { name: 'Iapetus', label: 'Iapetus' },
+        { name: 'Algieba', label: 'Algieba' },
+    ];
+    const [selectedVoice, setSelectedVoice] = useState('Kore');
+    const [isLoadingTTS, setIsLoadingTTS] = useState(false);
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+    const isSpeakingRef = useRef(false);
+    const activePlayingIndexRef = useRef<number | null>(null);
+    // そのドキュメントでTTSを利用したか（1回のみカウント用）
+    const documentTTSUsedRef = useRef(false);
+<<<<<<<<< Temporary merge branch 1
+=======
+    // stale closure 防止: DOM イベントハンドラから最新値を参照するためのref
+    const isSpeakingRef = useRef(false);
+    const activePlayingIndexRef = useRef<number | null>(null);
+    // 全行プリロード済みフラグ（新規解析・ボイス変更でリセット）
+    const preloadedRef = useRef(false);
+    // プリロード中フラグ（並列プリロードの競合防止）
+    const preloadingRef = useRef(false);
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+
+    // Tutor: 再生状態管理
+    const playbackStateRef = useRef({
+        isPlaying: false,
+        audioElement: null as HTMLAudioElement | null,
+    });
+    const ttsCacheRef = useRef<Record<string, string>>({});
 
     const resultRef = useRef<HTMLDivElement>(null);
 
@@ -413,6 +465,22 @@ function App() {
         setIsLoading(true);
         setIsDone(false);
         setErrorMessage('');
+        stopAudio();
+
+        // キャッシュのクリア（必要に応じて）
+        for (const url of Object.values(ttsCacheRef.current)) {
+            URL.revokeObjectURL(url);
+        }
+        ttsCacheRef.current = {};
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+        documentTTSUsedRef.current = false;
+=======
+        preloadedRef.current = false;
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+        documentTTSUsedRef.current = false;
+>>>>>>>>> Temporary merge branch 2
         const promptMap: Record<FunctionType, string> = {
             words: PROMPT_WORDS_LONG,
             tutor: PROMPT_TUTOR,
@@ -493,6 +561,352 @@ function App() {
             setView('main');
         }, 1500);
     };
+
+    // ==========================================
+    // 読み上げ
+    // ==========================================
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+
+    // ボイス変更時にTTS使用履歴をリセットするかは仕様次第だが、ここではリセットしない
+    useEffect(() => {
+        // Voiceが変わった際でもカウント免除は継続する
+<<<<<<<<< Temporary merge branch 1
+=======
+    // ボイス変更時にプリロードをリセット
+    useEffect(() => {
+        preloadedRef.current = false;
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+    }, [selectedVoice]);
+
+    const stopAudio = () => {
+        playbackStateRef.current.isPlaying = false;
+        if (playbackStateRef.current.audioElement) {
+            playbackStateRef.current.audioElement.pause();
+            playbackStateRef.current.audioElement.currentTime = 0;
+            playbackStateRef.current.audioElement = null;
+        }
+        isSpeakingRef.current = false;
+        activePlayingIndexRef.current = null;
+        setIsLoadingTTS(false);
+    };
+
+    // TTS音声をキャッシュ付きで取得（gemini-2.0-flash-exp は responseModalities:AUDIO をサポート）
+    // ※TTS使用回数のカウントはhandleLineSpeakClick側で一括管理（ここではカウントしない）
+    const fetchTTSAudio = async (text: string, voice: string): Promise<string> => {
+        const cacheKey = `${voice}_${text}`;
+        if (ttsCacheRef.current[cacheKey]) return ttsCacheRef.current[cacheKey];
+
+        const key = localStorage.getItem('lingodesk_apikey');
+        if (!key) throw new Error('API key not set');
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+        // v1betaでは2.0-flash-expや一部の新しいTTSモデルが見つからないため、明示的にv1alphaを使用する
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash-tts:generateContent?key=${key}`,
+=======
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`,
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+        // v1betaでは2.0-flash-expや一部の新しいTTSモデルが見つからないため、明示的にv1alphaを使用する
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash-tts:generateContent?key=${key}`,
+>>>>>>>>> Temporary merge branch 2
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+                    systemInstruction: {
+                        parts: [
+                            { text: "You are a text-to-speech engine. Read the following text aloud exactly as provided, without adding any conversational filler, introductory remarks, explanations, or any other additional words." }
+                        ]
+                    },
+<<<<<<<<< Temporary merge branch 1
+=======
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+                    contents: [{ role: 'user', parts: [{ text }] }],
+                    generationConfig: {
+                        responseModalities: ['AUDIO'],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: { voiceName: voice }
+                            }
+                        }
+                    }
+                })
+            }
+        );
+
+        if (!response.ok) {
+            const errBody = await response.text().catch(() => '');
+            throw new Error(`TTS API ${response.status}: ${errBody.slice(0, 200)}`);
+        }
+
+        const data = await response.json();
+        const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (!audioData?.data) {
+            const part = data?.candidates?.[0]?.content?.parts?.[0];
+            const errMsg = data?.error?.message || JSON.stringify(part).slice(0, 150);
+            throw new Error(`No audio in response: ${errMsg}`);
+        }
+
+        const binaryStr = atob(audioData.data);
+        const pcmBytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            pcmBytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        const wavBlob = pcmToWav(pcmBytes, 24000, 1, 16);
+        const url = URL.createObjectURL(wavBlob);
+        ttsCacheRef.current[cacheKey] = url;
+        return url;
+    };
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+    // スピーカーボタンクリック: 完全オンデマンド再生（APIカウント免除付き）
+    const handleLineSpeakClick = async (lineText: string, lineIndex: number, voice: string) => {
+        if (!isDone || activeFunction !== 'tutor') return;
+
+        // すでにこの行が再生中なら、停止のみ行う（もう一度押したら頭出しになる）
+<<<<<<<<< Temporary merge branch 1
+=======
+    // スピーカーボタンクリック: 初回は全行プリロード → 対象行を再生
+    const handleLineSpeakClick = async (lineText: string, lineIndex: number, voice: string) => {
+        if (!isDone || activeFunction !== 'tutor') return;
+
+        // トグル停止: 同じ行を再クリック → 停止
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+        if (isSpeakingRef.current && activePlayingIndexRef.current === lineIndex) {
+            stopAudio();
+            return;
+        }
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+        stopAudio();  // 別の行が鳴っていたら確実にとめる
+        if (!lineText) return;
+
+        // --- 再生処理の開始 ---
+<<<<<<<<< Temporary merge branch 1
+=======
+        stopAudio();
+        if (!lineText) return;
+
+        // プリロード中に別のスピーカーが押された場合はガード
+        if (preloadingRef.current) return;
+
+        // TTS日次制限チェック（プリロード未済 かつ キャッシュなしの場合のみ）
+        if (!preloadedRef.current && getTTSRemaining() <= 0) {
+            setErrorMessage(`本日のTTS音声変換は${TTS_DAILY_LIMIT}回の上限に達しました。明日リセットされます。`);
+            return;
+        }
+
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+        isSpeakingRef.current = true;
+        activePlayingIndexRef.current = lineIndex;
+        playbackStateRef.current.isPlaying = true;
+
+<<<<<<<<< Temporary merge branch 1
+<<<<<<< HEAD
+=========
+>>>>>>>>> Temporary merge branch 2
+        // すでにキャッシュがあればそこから再生（カウント減らさず即再生）
+        let url = ttsCacheRef.current[`${voice}_${lineText}`];
+        if (url) {
+            playAudioUrl(url);
+            return;
+        }
+
+        // 新規取得の場合：このドキュメントで初のTTS利用なら日次制限をチェック
+        if (!documentTTSUsedRef.current) {
+            if (getTTSRemaining() <= 0) {
+                setErrorMessage(`本日のTTS音声変換は${TTS_DAILY_LIMIT}回の上限に達しました。明日リセットされます。`);
+                stopAudio();
+                return;
+            }
+        }
+
+        setIsLoadingTTS(true);
+
+        try {
+            // 対象行の音声だけをフェッチ
+            url = await fetchTTSAudio(lineText, voice);
+
+            // このドキュメントでの初回生成ならカウントアップ（API消費1回分とみなす）
+            if (!documentTTSUsedRef.current) {
+                incrementTTSUsage();
+                documentTTSUsedRef.current = true;
+            }
+
+            // fetch 待ち中にユーザーが停止等を行っていないか確認
+            if (!playbackStateRef.current.isPlaying || activePlayingIndexRef.current !== lineIndex) {
+                setIsLoadingTTS(false);
+                return;
+            }
+
+            playAudioUrl(url);
+
+        } catch (error: any) {
+            const msg = error?.message || '不明なエラー';
+            setErrorMessage(`音声生成エラー: ${msg}`);
+            stopAudio();
+        } finally {
+            setIsLoadingTTS(false);
+        }
+    };
+
+    const playAudioUrl = (url: string) => {
+        const audio = new Audio(url);
+        playbackStateRef.current.audioElement = audio;
+
+        // はじめから再生（常にcurrentTime=0であることを保証）
+        audio.currentTime = 0;
+
+        audio.onended = () => stopAudio();
+        audio.onerror = (e) => {
+            console.error('Audio playback error', e);
+            setErrorMessage('音声データのデコードに失敗したか、形式がサポートされていません。');
+            stopAudio();
+        };
+        audio.play().catch((err) => {
+            console.error('Audio play caught error:', err);
+            setErrorMessage(`音声の再生が失敗またはブロックされました: ${err.message}`);
+            stopAudio();
+        });
+    };
+
+
+<<<<<<<<< Temporary merge branch 1
+=======
+        // 初回: 全行の音声を並列プリロード（1回のプリロード = TTS 1回分としてカウント）
+        if (!preloadedRef.current) {
+            preloadingRef.current = true;
+            setIsLoadingTTS(true);
+
+            const allBtns = Array.from(document.querySelectorAll<HTMLElement>('.line-speak-btn'));
+            const allTexts = [...new Set(
+                allBtns
+                    .map(btn => decodeURIComponent(btn.getAttribute('data-line-text') || ''))
+                    .filter(t => t.length > 0)
+            )];
+
+            const results = await Promise.allSettled(allTexts.map(t => fetchTTSAudio(t, voice)));
+
+            preloadingRef.current = false;
+            setIsLoadingTTS(false);
+
+            if (!playbackStateRef.current.isPlaying) return;
+
+            // 全て失敗した場合はエラー表示（リトライ可能にするためpreloadedRefはfalseのまま）
+            const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+            if (failed.length === results.length) {
+                const reason = failed[0]?.reason as Error;
+                setErrorMessage(`音声生成エラー: ${reason?.message || '不明なエラー'}`);
+                stopAudio();
+                return;
+            }
+
+            // プリロード成功: TTS使用を1回としてカウント
+            incrementTTSUsage();
+            preloadedRef.current = true;
+        }
+
+        // キャッシュから再生
+        const url = ttsCacheRef.current[`${voice}_${lineText}`];
+        if (!url) {
+            setErrorMessage('この行の音声生成に失敗しました。もう一度お試しください。');
+            stopAudio();
+            preloadedRef.current = false; // リトライ許可
+            return;
+        }
+
+        const audio = new Audio(url);
+        playbackStateRef.current.audioElement = audio;
+        audio.onended = () => stopAudio();
+        audio.onerror = () => stopAudio();
+        audio.play().catch(() => stopAudio());
+    };
+
+>>>>>>> 3cc19f735820318a5a0d59e7381985892a12d2f8
+=========
+>>>>>>>>> Temporary merge branch 2
+    // Reactイベント外（DOM注入）からの呼び出し対応
+    useEffect(() => {
+        const handleTutorLineSpeakClick = (e: MouseEvent) => {
+            const btn = (e.target as HTMLElement).closest('.line-speak-btn');
+            if (btn) {
+                const lineIdx = parseInt(btn.getAttribute('data-line-idx') || '0', 10);
+                const lineText = decodeURIComponent(btn.getAttribute('data-line-text') || '');
+                handleLineSpeakClick(lineText, lineIdx, selectedVoice);
+            }
+        };
+
+        if (view === 'result' && activeFunction === 'tutor') {
+            document.addEventListener('click', handleTutorLineSpeakClick);
+            return () => document.removeEventListener('click', handleTutorLineSpeakClick);
+        }
+    }, [view, activeFunction, isDone, selectedVoice]);
+
+    // PCM → WAV変換ヘルパー
+    function pcmToWav(pcmData: Uint8Array, sampleRate: number, numChannels: number, bitsPerSample: number): Blob {
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmData.length;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        // RIFF header
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(view, 8, 'WAVE');
+
+        // fmt chunk
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+
+        // data chunk
+        writeString(view, 36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        const wavBytes = new Uint8Array(buffer);
+        wavBytes.set(pcmData, 44);
+
+        return new Blob([wavBytes], { type: 'audio/wav' });
+    }
+
+    function writeString(view: DataView, offset: number, str: string) {
+        for (let i = 0; i < str.length; i++) {
+            view.setUint8(offset + i, str.charCodeAt(i));
+        }
+    }
 
     // ==========================================
     // 表示用ヘルパー
