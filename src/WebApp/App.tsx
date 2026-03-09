@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown } from 'lucide-react';
 import {
     analyzeTextStream,
     listAvailableModels,
     PROMPT_WORDS_LONG,
-    PROMPT_TUTOR,
+    PROMPT_LEARNING,
     KNOWN_RPD_LIMITS,
     TEXT_OUTPUT_MODELS,
     MODEL_DISPLAY_NAMES,
@@ -14,6 +14,13 @@ import './App.css';
 
 type FunctionType = 'words' | 'tutor';
 type AppView = 'main' | 'settings' | 'result';
+
+interface SentenceResult {
+    original: string;
+    natural: string;
+    chunkedEn: string;
+    chunkedJa: string;
+}
 
 
 // ==========================================
@@ -72,20 +79,18 @@ function applyInline(html: string): string {
     return html;
 }
 
-function formatMarkdown(text: string, showChunks: boolean = true): string {
+function formatMarkdown(text: string): string {
     if (text.includes('error-display')) return text;
 
     const lines = text.split('\n');
     const parts: string[] = [];
     let inBlockquote = false;
     let blockquoteLines: { text: string; globalWordIdx: number }[] = [];
-    let globalLineIdx = 0;
 
     for (const line of lines) {
         if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
             if (inBlockquote) {
-                parts.push(renderBlockquote(blockquoteLines, showChunks, globalLineIdx));
-                globalLineIdx += blockquoteLines.length;
+                parts.push(renderBlockquote(blockquoteLines));
                 blockquoteLines = [];
                 inBlockquote = false;
             }
@@ -95,11 +100,10 @@ function formatMarkdown(text: string, showChunks: boolean = true): string {
 
         if (line.startsWith('> ')) {
             inBlockquote = true;
-            blockquoteLines.push({ text: line.slice(2), globalWordIdx: -1 }); // globalWordIdx はここでは使わないが構造を統一
+            blockquoteLines.push({ text: line.slice(2), globalWordIdx: -1 });
             continue;
         } else if (inBlockquote) {
-            parts.push(renderBlockquote(blockquoteLines, showChunks, globalLineIdx));
-            globalLineIdx += blockquoteLines.length;
+            parts.push(renderBlockquote(blockquoteLines));
             blockquoteLines = [];
             inBlockquote = false;
         }
@@ -152,34 +156,84 @@ function formatMarkdown(text: string, showChunks: boolean = true): string {
             continue;
         }
 
-        // チャンク表示の制御
-        let processed = applyInline(escapeHtml(line));
-        if (showChunks) {
-            processed = processed.replace(/／/g, '<span class="chunk-slash">／</span>');
-        } else {
-            processed = processed.replace(/／/g, ' ');
-        }
-        parts.push(`<div class="text-line">${processed}</div>`);
+        parts.push(`<div class="text-line">${applyInline(escapeHtml(line))}</div>`);
     }
 
     if (inBlockquote && blockquoteLines.length > 0) {
-        parts.push(renderBlockquote(blockquoteLines, showChunks, globalLineIdx));
+        parts.push(renderBlockquote(blockquoteLines));
     }
 
     return parts.join('');
 }
 
-function renderBlockquote(lines: { text: string; globalWordIdx: number }[], showChunks: boolean, _startIdx: number = 0): string {
+const memoizedSentences = new Map<string, SentenceResult>();
+
+function parseStreamToSentences(text: string): { sentences: SentenceResult[], preamble: string } {
+    const preamble = text.split('[BLOCK_START]')[0].trim();
+    const blocks = text.split('[BLOCK_START]');
+    const sentences: SentenceResult[] = [];
+
+    for (let i = 1; i < blocks.length; i++) { // blocks[0] は preamble なので 1 から開始
+        const block = blocks[i];
+        if (!block.trim()) continue;
+
+        const isLast = i === blocks.length - 1;
+        if (!isLast && memoizedSentences.has(block)) {
+            sentences.push(memoizedSentences.get(block)!);
+            continue;
+        }
+
+        const original = block.match(/<original>([\s\S]*?)<\/original>/)?.[1]?.trim()
+            || block.match(/<original>([\s\S]*?)(?:\[BLOCK_START]|<natural>|$)/)?.[1]?.trim() || '';
+        const natural = block.match(/<natural>([\s\S]*?)<\/natural>/)?.[1]?.trim()
+            || block.match(/<natural>([\s\S]*?)(?:\[BLOCK_START]|<chunked_en>|$)/)?.[1]?.trim() || '';
+        const chunkedEn = block.match(/<chunked_en>([\s\S]*?)<\/chunked_en>/)?.[1]?.trim()
+            || block.match(/<chunked_en>([\s\S]*?)(?:\[BLOCK_START]|<chunked_ja>|$)/)?.[1]?.trim() || '';
+        const chunkedJa = block.match(/<chunked_ja>([\s\S]*?)<\/chunked_ja>/)?.[1]?.trim()
+            || block.match(/<chunked_ja>([\s\S]*?)(?:\[BLOCK_START]|\[BLOCK_END]|\[\/BLOCK_END]|$)/)?.[1]?.trim() || '';
+
+        const result = { original, natural, chunkedEn, chunkedJa };
+        if (!isLast && (block.includes('[/BLOCK_END]') || block.includes('[BLOCK_END]'))) {
+            memoizedSentences.set(block, result);
+        }
+        sentences.push(result);
+    }
+    return { sentences, preamble };
+}
+
+const SentenceBlock = memo(({
+    sentence,
+    showChunks
+}: {
+    sentence: SentenceResult;
+    showChunks: boolean;
+}) => {
+    return (
+        <div className="sentence-block">
+            <blockquote className="result-blockquote tutor-blockquote">
+                <div className="tutor-line">
+                    <span dangerouslySetInnerHTML={{
+                        __html: applyInline(escapeHtml(showChunks ? (sentence.chunkedEn || sentence.original) : sentence.original)).replace(/／/g, '<span class="chunk-slash">／</span>')
+                    }} />
+                </div>
+            </blockquote>
+            <div
+                className={`text-line ${showChunks ? 'chunked-text' : 'natural-text'}`}
+                dangerouslySetInnerHTML={{
+                    __html: applyInline(escapeHtml(showChunks ? (sentence.chunkedJa || sentence.natural) : sentence.natural)).replace(/／/g, '<span class="chunk-slash">／</span>')
+                }}
+            />
+            <hr className="result-hr" />
+        </div>
+    );
+});
+
+function renderBlockquote(lines: { text: string; globalWordIdx: number }[]): string {
     const content = lines.map((l) => {
         let escaped = escapeHtml(l.text);
-        if (showChunks) {
-            escaped = escaped.replace(/／/g, '<span class="chunk-slash">／</span>');
-        } else {
-            escaped = escaped.replace(/／/g, ' ');
-        }
-        return `<div class="tutor-line"><span>${escaped}</span></div>`;
+        return `<div className="tutor-line"><span>${escaped}</span></div>`;
     }).join('');
-    return `<blockquote class="result-blockquote tutor-blockquote">${content}</blockquote>`;
+    return `<blockquote className="result-blockquote tutor-blockquote">${content}</blockquote>`;
 }
 
 // Words: Long結果からShort版を生成（API不使用）
@@ -221,9 +275,11 @@ function App() {
     const [view, setView] = useState<AppView>('main');
     const [sourceText, setSourceText] = useState('');
     const [resultContent, setResultContent] = useState('');
+    const [tutorSentences, setTutorSentences] = useState<SentenceResult[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isDone, setIsDone] = useState(false);
     const [activeFunction, setActiveFunction] = useState<FunctionType | null>(null);
+    const [preambleContent, setPreambleContent] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
 
     // Settings
@@ -250,13 +306,45 @@ function App() {
 
     const resultRef = useRef<HTMLDivElement>(null);
 
-    // 初期化
+    // 初期化とメッセージ受信
     useEffect(() => {
         if (!localStorage.getItem('lingodesk_apikey')) {
             setView('settings');
         } else {
-            // 起動時にRPD状態を確認
             initializeRPD();
+        }
+
+        // Backgroundからのメッセージを受信（右クリックメニュー等からの解析同期）
+        const messageListener = (message: any) => {
+            if (message.type === 'ANALYSIS_CHUNK') {
+                setView('result');
+                setActiveFunction('tutor');
+                const { sentences, preamble } = parseStreamToSentences(message.text);
+                setTutorSentences(sentences);
+                setPreambleContent(preamble);
+                setIsLoading(true);
+                setIsDone(false);
+            } else if (message.type === 'ANALYSIS_DONE') {
+                setView('result');
+                setActiveFunction('tutor');
+                const { sentences, preamble } = parseStreamToSentences(message.text);
+                setTutorSentences(sentences);
+                setPreambleContent(preamble);
+                setIsLoading(false);
+                setIsDone(true);
+            } else if (message.type === 'ANALYSIS_ERROR') {
+                setErrorMessage(message.error);
+                setIsLoading(false);
+                setIsDone(true);
+            } else if (message.type === 'UPDATE_USAGE') {
+                setCurrentRPD(message.usage);
+            }
+        };
+
+        const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.onMessage;
+        if (isExtension) {
+            chrome.runtime.onMessage.addListener(messageListener);
+            chrome.runtime.sendMessage({ type: 'REQUEST_ANALYSIS_RESUME' });
         }
 
         // Dropdownを外クリックで閉じる
@@ -269,7 +357,12 @@ function App() {
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            if (isExtension) {
+                chrome.runtime.onMessage.removeListener(messageListener);
+            }
+        };
     }, [modelDropdownOpen]);
 
     // 起動時RPD初期化：日付リセットとモデル一覧取得
@@ -330,12 +423,11 @@ function App() {
         return () => clearInterval(interval);
     }, [model]);
 
-    // ストリーミング中の自動スクロール
     useEffect(() => {
         if (!isDone && resultRef.current) {
             resultRef.current.scrollTop = resultRef.current.scrollHeight;
         }
-    }, [resultContent, isDone]);
+    }, [tutorSentences, preambleContent, resultContent, isDone]);
 
     // APIキー保存時とメイン画面表示時にモデル取得
     const fetchModels = useCallback(async () => {
@@ -435,6 +527,8 @@ function App() {
     const handleExecute = async (type: FunctionType) => {
         if (!sourceText.trim()) return;
 
+        memoizedSentences.clear();
+
         const storedKey = localStorage.getItem('lingodesk_apikey');
         if (!storedKey) { setView('settings'); return; }
 
@@ -452,19 +546,35 @@ function App() {
         setErrorMessage('');
         const promptMap: Record<FunctionType, string> = {
             words: PROMPT_WORDS_LONG,
-            tutor: PROMPT_TUTOR,
+            tutor: PROMPT_LEARNING,
         };
 
         try {
+
             const finalResultRaw = await analyzeTextStream(
                 storedKey,
                 sourceText,
                 promptMap[type],
                 activeModel,
                 (accumulated) => {
-                    setResultContent(accumulated);
+                    if (type === 'tutor') {
+                        const { sentences, preamble } = parseStreamToSentences(accumulated);
+                        setTutorSentences(sentences);
+                        setPreambleContent(preamble);
+                    } else {
+                        setResultContent(accumulated);
+                    }
                 }
             );
+
+            // 最終確定の状態を反映
+            if (type === 'tutor') {
+                const { sentences, preamble } = parseStreamToSentences(finalResultRaw);
+                setTutorSentences(sentences);
+                setPreambleContent(preamble);
+            } else {
+                setResultContent(finalResultRaw);
+            }
 
             // 冒頭の「はい、承知いたしました」等のAIフィラーを念のため除去
             const finalResult = finalResultRaw.replace(/^(はい、承知いたしました。|承知いたしました。|かしこまりました。|OK、|Certainly!|Sure!|Here is the analysis:|以下の解説を生成します:|各単語について解説します:)\n*\s*/i, '');
@@ -488,7 +598,7 @@ function App() {
         } catch (err: any) {
             console.error('handleExecute Error:', err);
             const msg = err?.message || '不明なエラーが発生しました';
-            
+
             const isQuotaError = msg.includes('[RESOURCE_EXHAUSTED]') || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted');
             const isAuthError = msg.includes('[AUTH_ERROR]') || msg.includes('API key') || msg.includes('401') || msg.includes('403');
             const isOverloaded = msg.includes('[OVERLOADED]') || msg.includes('503') || msg.includes('overloaded');
@@ -554,13 +664,15 @@ function App() {
         const handlePopState = () => {
             setView('main');
             setResultContent('');
+            setTutorSentences([]);
             setActiveFunction(null);
             setIsLoading(false); // 解析中ステートをリセット
             setIsDone(false);
             setErrorMessage('');
-            
-            // バックグラウンド側の解析を中断させるためのメッセージ送信（あれば）
-            chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => {});
+
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+                chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => { });
+            }
         };
         window.addEventListener('popstate', handlePopState);
         return () => { window.removeEventListener('popstate', handlePopState); }
@@ -653,7 +765,9 @@ function App() {
                             setIsLoading(false);
                             setIsDone(false);
                             setErrorMessage('');
-                            chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => {});
+                            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+                                chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => { });
+                            }
                         }}>
                             <ArrowLeft size={18} />
                         </button>
@@ -693,9 +807,30 @@ function App() {
                             <div className="error-text">{errorMessage}</div>
                             <button className="retry-btn" onClick={() => handleExecute(activeFunction)}>再試行</button>
                         </div>
+                    ) : activeFunction === 'tutor' ? (
+                        <div className="result-content">
+                            {preambleContent && (
+                                <div className="result-preamble text-line" style={{ fontStyle: 'italic', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                                    {applyInline(escapeHtml(preambleContent))}
+                                </div>
+                            )}
+                            {tutorSentences.map((s, i) => (
+                                <SentenceBlock
+                                    key={i}
+                                    sentence={s}
+                                    showChunks={showChunks}
+                                />
+                            ))}
+                            {!isDone && (
+                                <div className="loading-display mini">
+                                    <div className="spinner small" />
+                                    <span>解析中...</span>
+                                </div>
+                            )}
+                        </div>
                     ) : displayContent ? (
                         <div className="result-content" dangerouslySetInnerHTML={{
-                            __html: formatMarkdown(displayContent, activeFunction === 'tutor' ? showChunks : true)
+                            __html: formatMarkdown(displayContent)
                         }} />
                     ) : isDone ? (
                         <div className="error-display">
@@ -775,9 +910,17 @@ function App() {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         // 残り0でも選択を許可（Late Binding方式: 実際に叩いてみるまで制限を確定させない）
+                                                        // ローカルカウンターが0の場合はリセット（実際のAPI側はまだ使える可能性があるため）
+                                                        if (remaining <= 0) {
+                                                            const usage = getModelUsage();
+                                                            const today = getLocalDateString();
+                                                            const lim = KNOWN_RPD_LIMITS[m] ?? 20;
+                                                            usage[m] = { date: today, used: 0, limit: lim };
+                                                            localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
+                                                        }
                                                         setModel(m);
                                                         localStorage.setItem('lingodesk_model', m);
-                                                        setCurrentRPD(remaining);
+                                                        setCurrentRPD(remaining <= 0 ? (KNOWN_RPD_LIMITS[m] ?? 20) : remaining);
                                                         setModelDropdownOpen(false);
                                                     }}
                                                 >
