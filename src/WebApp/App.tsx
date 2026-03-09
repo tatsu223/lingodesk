@@ -489,32 +489,37 @@ function App() {
             console.error('handleExecute Error:', err);
             const msg = err?.message || '不明なエラーが発生しました';
             
-            if (msg.includes('[AUTH_ERROR]')) {
+            const isQuotaError = msg.includes('[RESOURCE_EXHAUSTED]') || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted');
+            const isAuthError = msg.includes('[AUTH_ERROR]') || msg.includes('API key') || msg.includes('401') || msg.includes('403');
+            const isOverloaded = msg.includes('[OVERLOADED]') || msg.includes('503') || msg.includes('overloaded');
+
+            if (isAuthError) {
                 setErrorMessage('APIキーが無効です。設定画面でAPIキーを確認してください。');
             } else if (msg.includes('parse stream')) {
-                setErrorMessage(`解析エラー: データの受信中に問題が発生しました。インターネット接続を確認し、もう一度お試しください。(${msg})`);
-            } else if (msg.includes('[RESOURCE_EXHAUSTED]')) {
-                // 真に 429 / Quota エラーが発生した場合のみ上限到達として扱う
+                setErrorMessage('データの受信中に問題が発生しました。インターネット接続を確認し、もう一度お試しください。');
+            } else if (isQuotaError) {
                 console.log('Real 429 detected, marking model as exhausted.');
                 const usage = getModelUsage();
                 const today = getLocalDateString();
                 const limit = KNOWN_RPD_LIMITS[activeModel] || 20;
                 usage[activeModel] = { date: today, used: limit, limit };
                 localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-                
+
                 const nextModel = autoSwitchModel();
                 if (nextModel && nextModel !== activeModel) {
-                    setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} が回数上限に達したため、${MODEL_DISPLAY_NAMES[nextModel] || nextModel} に自動で切り替えました。もう一度「English Words」または「English Tutor」ボタンを押してください。`);
+                    setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} の本日の使用回数（${limit}回）が上限に達しました。${MODEL_DISPLAY_NAMES[nextModel] || nextModel} に自動で切り替えました。もう一度ボタンを押してください。`);
                 } else {
-                    setErrorMessage('全てのモデルの本日の使用回数が上限に達しました。明日リセットされます。');
+                    setErrorMessage('本日の全モデルの使用回数が上限に達しました。明日の深夜にリセットされます。');
                 }
                 fetchModels();
-            } else if (msg.includes('[OVERLOADED]')) {
-                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} は現在高負荷状態です（503）。しばらく待ってから再試行するか、別のモデルをお試しください。`);
+            } else if (isOverloaded) {
+                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} は現在混雑しています。しばらく待ってから再試行するか、別のモデルをお試しください。`);
             } else if (msg.includes('[SAFETY_ERROR]')) {
                 setErrorMessage('安全フィルターにより内容がブロックされました。入力を調整してもう一度お試しください。');
+            } else if (msg.includes('404') || msg.includes('not found')) {
+                setErrorMessage(`モデル「${MODEL_DISPLAY_NAMES[activeModel] || activeModel}」が見つかりません。別のモデルを選択してください。`);
             } else {
-                setErrorMessage(`エラーが発生しました: ${msg.replace(/^\[.*?\]\s*/, '')}。もう一度お試しください。`);
+                setErrorMessage('エラーが発生しました。しばらく待ってからもう一度お試しください。');
             }
         } finally {
             setIsLoading(false);
