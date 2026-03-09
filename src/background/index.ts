@@ -18,6 +18,9 @@ let currentAnalysisContent = '';
 let currentAnalysisIsDone = false;
 let currentAnalysisError: string | null = null;
 let activeAnalysisController: AbortController | null = null;
+let lastMsgTime = 0;
+let isFirstMsg = true;
+const MSG_THROTTLE_MS = 50;
 
 // ヘルパー: キャッシュからの読み込み
 async function initCachedAnalysisState() {
@@ -548,7 +551,7 @@ function getSettings(): Promise<{ apiKey: string; model: string }> {
     return new Promise((resolve) => {
         chrome.storage.local.get(['geminiApiKey', 'geminiModel'], (result) => {
             let model = (result.geminiModel as string) || 'gemini-3-flash-preview';
-            
+
             // 安全策: 取得したモデルIDが TEXT_OUTPUT_MODELS に含まれていない場合は、
             // 404エラーを避けるためにデフォルトモデルにリセットする
             if (!TEXT_OUTPUT_MODELS.includes(model)) {
@@ -568,19 +571,28 @@ function getSettings(): Promise<{ apiKey: string; model: string }> {
 // ストリーミング解析処理
 async function handleStreamAnalysis(text: string, tabId: number | null) {
     const sendMsg = (msg: any) => {
+        // メモリ上の状態のみ更新（ストリーミング中は頻繁なストレージ書き込みを避ける）
         if (msg.type === 'ANALYSIS_CHUNK' || msg.type === 'ANALYSIS_DONE') {
-            updateAnalysisState({
-                sourceText: text,
-                content: msg.text,
-                isDone: msg.type === 'ANALYSIS_DONE',
-                error: null
-            });
+            currentAnalysisSourceText = text;
+            currentAnalysisContent = msg.text;
+            currentAnalysisIsDone = msg.type === 'ANALYSIS_DONE';
+            currentAnalysisError = null;
         } else if (msg.type === 'ANALYSIS_ERROR') {
-            updateAnalysisState({
-                sourceText: text,
-                error: msg.error,
-                isDone: true
-            });
+            currentAnalysisSourceText = text;
+            currentAnalysisError = msg.error;
+            currentAnalysisIsDone = true;
+        }
+
+        // 完了またはエラー時のみストレージに永続化
+        if (msg.type === 'ANALYSIS_DONE' || msg.type === 'ANALYSIS_ERROR') {
+            chrome.storage.local.set({
+                appAnalysisState: {
+                    sourceText: currentAnalysisSourceText,
+                    content: currentAnalysisContent,
+                    isDone: currentAnalysisIsDone,
+                    error: currentAnalysisError
+                }
+            }).catch(() => { });
         }
 
         if (activeWindowId !== null) {
@@ -638,6 +650,8 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
 
         // 制限チェック（事前に行う）
         await updateGeminiUsage();
+        lastMsgTime = 0; // 開始時にリセット
+        isFirstMsg = true; // 新規リクエスト時にリセット
 
         const response = await fetch(url, {
             method: 'POST',
@@ -683,7 +697,13 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
                         const chunkText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (chunkText) {
                             currentAccumulated += chunkText;
-                            sendMsg({ type: 'ANALYSIS_CHUNK', text: currentAccumulated });
+
+                            const now = Date.now();
+                            if (isFirstMsg || now - lastMsgTime > MSG_THROTTLE_MS) {
+                                sendMsg({ type: 'ANALYSIS_CHUNK', text: currentAccumulated });
+                                lastMsgTime = now;
+                                isFirstMsg = false;
+                            }
                         }
                     } catch { /* ignore JSON error */ }
                 }

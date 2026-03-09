@@ -394,21 +394,11 @@ function App() {
             // 現在のモデルのRPDを更新
             setCurrentRPD(getModelRemainingRPD(model));
 
-            // 現在のモデルが利用可能リストにない（古いモデル名が残っている）場合はリセット
+            // 現在のモデルが利用可能リストにない（古いモデル名が残っている）場合のみリセット
             if (models.length > 0 && !models.includes(model)) {
                 setModel(models[0]);
                 localStorage.setItem('lingodesk_model', models[0]);
                 setCurrentRPD(getModelRemainingRPD(models[0]));
-            }
-
-            // 現在のモデルがRPD切れなら自動切替
-            if (getModelRemainingRPD(model) <= 0) {
-                const available = models.filter(m => getModelRemainingRPD(m) > 0);
-                if (available.length > 0) {
-                    setModel(available[0]);
-                    localStorage.setItem('lingodesk_model', available[0]);
-                    setCurrentRPD(getModelRemainingRPD(available[0]));
-                }
             }
         } catch (err) {
             console.error('RPD initialization failed:', err);
@@ -505,22 +495,6 @@ function App() {
         }
     }, [view, fetchModels]);
 
-    // RPD切れ時の自動モデル切替
-    const autoSwitchModel = useCallback(() => {
-        const currentRemaining = getModelRemainingRPD(model);
-        if (currentRemaining > 0) return model;
-
-        for (const m of TEXT_OUTPUT_MODELS) {
-            if (availableModels.includes(m) && getModelRemainingRPD(m) > 0) {
-                setModel(m);
-                localStorage.setItem('lingodesk_model', m);
-                setCurrentRPD(getModelRemainingRPD(m));
-                return m;
-            }
-        }
-        return null; // 全モデル切れ
-    }, [model, availableModels]);
-
     // ==========================================
     // API呼び出し
     // ==========================================
@@ -588,12 +562,6 @@ function App() {
             const remaining = incrementModelUsage(activeModel);
             setCurrentRPD(remaining);
 
-            // RPD切れたら自動切替を再度チェック
-            if (remaining <= 0) {
-                autoSwitchModel();
-                fetchModels();
-            }
-
             setIsDone(true);
         } catch (err: any) {
             console.error('handleExecute Error:', err);
@@ -614,14 +582,8 @@ function App() {
                 const limit = KNOWN_RPD_LIMITS[activeModel] || 20;
                 usage[activeModel] = { date: today, used: limit, limit };
                 localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-
-                const nextModel = autoSwitchModel();
-                if (nextModel && nextModel !== activeModel) {
-                    setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} の本日の使用回数（${limit}回）が上限に達しました。${MODEL_DISPLAY_NAMES[nextModel] || nextModel} に自動で切り替えました。もう一度ボタンを押してください。`);
-                } else {
-                    setErrorMessage('本日の全モデルの使用回数が上限に達しました。明日の深夜にリセットされます。');
-                }
-                fetchModels();
+                setCurrentRPD(0);
+                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} の本日の使用回数（${limit}回）が上限に達しました。別のモデルをドロップダウンから選択してください。`);
             } else if (isOverloaded) {
                 setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} は現在混雑しています。しばらく待ってから再試行するか、別のモデルをお試しください。`);
             } else if (msg.includes('[SAFETY_ERROR]')) {

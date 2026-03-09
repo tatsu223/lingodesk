@@ -1,7 +1,77 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
+
+interface SentenceResult {
+    original: string;
+    natural: string;
+    chunkedEn: string;
+    chunkedJa: string;
+}
+
+const memoizedSentences = new Map<string, SentenceResult>();
+
+function parseStreamToSentences(raw: string): { sentences: SentenceResult[], preamble: string } {
+    const preamble = raw.split('[BLOCK_START]')[0].trim();
+    const blocks = raw.split('[BLOCK_START]');
+    const sentences: SentenceResult[] = [];
+
+    for (let i = 1; i < blocks.length; i++) {
+        const block = blocks[i].trim();
+        if (!block) continue;
+
+        const isLast = i === blocks.length - 1;
+        if (!isLast && memoizedSentences.has(block)) {
+            sentences.push(memoizedSentences.get(block)!);
+            continue;
+        }
+
+        const original = block.match(/<original>([\s\S]*?)<\/original>/)?.[1]?.trim()
+            || block.match(/<original>([\s\S]*?)$/)?.[1]?.trim() || '';
+        const natural = block.match(/<natural>([\s\S]*?)<\/natural>/)?.[1]?.trim()
+            || block.match(/<natural>([\s\S]*?)$/)?.[1]?.trim() || '';
+        const chunkedEn = block.match(/<chunked_en>([\s\S]*?)<\/chunked_en>/)?.[1]?.trim()
+            || block.match(/<chunked_en>([\s\S]*?)$/)?.[1]?.trim() || '';
+        const chunkedJa = block.match(/<chunked_ja>([\s\S]*?)<\/chunked_ja>/)?.[1]?.trim()
+            || block.match(/<chunked_ja>([\s\S]*?)$/)?.[1]?.trim() || '';
+
+        const result = { original, natural, chunkedEn, chunkedJa };
+        if (!isLast && (block.includes('[/BLOCK_END]') || block.includes('[BLOCK_END]'))) {
+            memoizedSentences.set(block, result);
+        }
+        sentences.push(result);
+    }
+    return { sentences, preamble };
+}
+
+const SentenceBlock = memo(({
+    sentence,
+    showChunks
+}: {
+    sentence: SentenceResult;
+    showChunks: boolean;
+}) => {
+    return (
+        <div className="sentence-block">
+            <blockquote className="get-blockquote">
+                <div className="tutor-line">
+                    <span dangerouslySetInnerHTML={{
+                        __html: applyInline(escapeHtml(showChunks ? (sentence.chunkedEn || sentence.original) : sentence.original))
+                    }} />
+                </div>
+            </blockquote>
+            <div
+                className={`text-line ${showChunks ? 'chunked-text' : 'natural-text'}`}
+                dangerouslySetInnerHTML={{
+                    __html: applyInline(escapeHtml(showChunks ? (sentence.chunkedJa || sentence.natural) : sentence.natural))
+                }}
+            />
+            <hr className="result-hr" />
+        </div>
+    );
+});
 
 function App() {
-    const [content, setContent] = useState('');
+    const [tutorSentences, setTutorSentences] = useState<SentenceResult[]>([]);
+    const [preambleContent, setPreambleContent] = useState('');
     const [isDone, setIsDone] = useState(false);
     const [sourceText, setSourceText] = useState('');
     const [sourceTabId, setSourceTabId] = useState<number | null>(null);
@@ -52,22 +122,29 @@ function App() {
                 setSourceText(message.sourceText || '');
                 setSourceTabId(message.sourceTabId || null);
                 if (message.error) {
-                    setContent(`<div class="window-error"><div class="window-error-icon">⚠️</div><div class="window-error-text">${message.error}</div><div class="window-error-hint">拡張機能アイコンをクリックしてAPIキーを設定してください。</div></div>`);
+                    setPopupError(message.error);
                     setIsDone(true);
                 } else {
-                    setContent(message.content ?? '');
+                    const { sentences, preamble } = parseStreamToSentences(message.content ?? '');
+                    setTutorSentences(sentences);
+                    setPreambleContent(preamble);
                     setIsDone(message.isDone || false);
                 }
             } else if (message.type === 'ANALYSIS_CHUNK') {
-                setContent(message.text);
+                const { sentences, preamble } = parseStreamToSentences(message.text);
+                setTutorSentences(sentences);
+                setPreambleContent(preamble);
                 setIsDone(false);
             } else if (message.type === 'ANALYSIS_DONE') {
-                setContent(message.text);
+                const { sentences, preamble } = parseStreamToSentences(message.text);
+                setTutorSentences(sentences);
+                setPreambleContent(preamble);
                 setIsDone(true);
             } else if (message.type === 'ANALYSIS_ERROR') {
-                setContent(`<div class="window-error"><div class="window-error-icon">⚠️</div><div class="window-error-text">${message.error}</div><div class="window-error-hint">拡張機能アイコンをクリックしてAPIキーを設定してください。</div></div>`);
+                setPopupError(message.error);
                 setIsDone(true);
-            } else if (message.type === 'CHUNK_RESULT') {
+            }
+            else if (message.type === 'CHUNK_RESULT') {
                 applyChunks(message.text);
             } else if (message.type === 'CHUNK_ERROR') {
                 console.error('Chunk error:', message.error);
@@ -165,15 +242,17 @@ function App() {
         if (!isDone && bodyRef.current) {
             bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
         }
-    }, [content, isDone]);
+    }, [tutorSentences, popupContent, isDone]);
 
     function applyChunks(chunkedText: string) {
-        setContent(chunkedText);
+        const { sentences, preamble } = parseStreamToSentences(chunkedText);
+        setTutorSentences(sentences);
+        setPreambleContent(preamble);
         setIsDone(true);
     }
 
     function handleChunk() {
-        if (!content) return;
+        if (tutorSentences.length === 0) return;
         setIsChunkMode(!isChunkMode);
     }
 
@@ -293,10 +372,27 @@ function App() {
             )}
 
             <div className={`window-body ${isChunkMode ? 'show-chunks' : ''}`} ref={bodyRef} style={{ '--window-font-size': `${fontSize}px` } as any}>
-                <div
-                    className="window-content"
-                    dangerouslySetInnerHTML={{ __html: content ? formatMarkdown(content, fontSize) : renderLoading() }}
-                />
+                <div className="window-content">
+                    {preambleContent && (
+                        <div className="result-preamble text-line" style={{ fontStyle: 'italic', opacity: 0.8, marginBottom: '20px' }}>
+                            {preambleContent}
+                        </div>
+                    )}
+                    {tutorSentences.length > 0 ? (
+                        tutorSentences.map((s, i) => (
+                            <SentenceBlock key={i} sentence={s} showChunks={isChunkMode} />
+                        ))
+                    ) : (
+                        !isDone && <div dangerouslySetInnerHTML={{ __html: renderLoading() }} />
+                    )}
+                    {popupError && (
+                        <div className="window-error">
+                            <div className="window-error-icon">⚠️</div>
+                            <div className="window-error-text">{popupError}</div>
+                            <div className="window-error-hint">拡張機能アイコンをクリックしてAPIキーを設定してください。</div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {popupWord && (
@@ -371,69 +467,6 @@ function renderLoading(): string {
     return `<div class="window-loading"><div class="window-spinner"></div><span style="font-size: 13px;">解析中...</span></div>`;
 }
 
-function formatMarkdown(text: string, fontSize: number): string {
-    // すでにエラー表示用のHTMLとして整形されている場合はそのまま返す
-    if (text.includes('window-error')) {
-        return text;
-    }
-
-    const lines = text.split('\n');
-    const parts: string[] = [];
-    let inBlockquote = false;
-    let blockquoteLines: string[] = [];
-
-    for (const line of lines) {
-        if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
-            if (inBlockquote) {
-                parts.push(renderBlockquote(blockquoteLines, fontSize));
-                blockquoteLines = [];
-                inBlockquote = false;
-            }
-            parts.push('<hr class="get-hr">');
-            continue;
-        }
-
-        if (line.startsWith('> ')) {
-            inBlockquote = true;
-            blockquoteLines.push(line.slice(2));
-            continue;
-        } else if (inBlockquote) {
-            parts.push(renderBlockquote(blockquoteLines, fontSize));
-            blockquoteLines = [];
-            inBlockquote = false;
-        }
-
-        if (line.trim() === '') {
-            if (parts.length > 0 && !parts[parts.length - 1].includes('spacer')) {
-                parts.push('<div class="spacer"></div>');
-            }
-            continue;
-        }
-
-        if (line.startsWith('💡')) {
-            const content = escapeHtml(line.slice(2).trim());
-            parts.push(`<div class="tip"><span class="tip-icon">💡</span><span>${applyInline(content)}</span></div>`);
-            continue;
-        }
-
-        parts.push(`<div class="text-line">${applyInline(escapeHtml(line))}</div>`);
-    }
-
-    if (inBlockquote && blockquoteLines.length > 0) {
-        parts.push(renderBlockquote(blockquoteLines, fontSize));
-    }
-
-    return parts.join('');
-}
-
-function renderBlockquote(lines: string[], fontSize: number): string {
-    const content = lines.map(l => {
-        let escaped = escapeHtml(l);
-        escaped = escaped.replace(/／/g, '<span class="chunk-slash">／</span>');
-        return escaped;
-    }).join('<br>');
-    return `<blockquote class="get-blockquote" style="font-size: ${fontSize}px">${content}</blockquote>`;
-}
 
 function applyInline(html: string): string {
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
