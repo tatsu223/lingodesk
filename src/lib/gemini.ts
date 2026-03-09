@@ -150,22 +150,22 @@ export const SYSTEM_PROMPT = PROMPT_TUTOR;
 // テキスト出力モデルのAPI ID一覧
 // ※AI Studio上の表示が Gemini 2.5 や 3 になっているが、API IDとしては安定版を使用する
 export const TEXT_OUTPUT_MODELS = [
-    'gemini-2.5-flash',                  // Gemini 2.5 Flash
-    'gemini-3-flash-preview',            // Gemini 3 Flash
-    'gemini-2.5-flash-lite',             // Gemini 2.5 Flash Lite
+    'gemini-3-flash-preview',        // Gemini 3 Flash
+    'gemini-2.5-flash',              // Gemini 2.5 Flash
+    'gemini-2.5-flash-lite',         // Gemini 2.5 Flash Lite
 ];
 
 // AI Studio の RPD上限
 export const KNOWN_RPD_LIMITS: Record<string, number> = {
-    'gemini-2.5-flash': 20,
     'gemini-3-flash-preview': 20,
+    'gemini-2.5-flash': 20,
     'gemini-2.5-flash-lite': 20,
 };
 
 // 表示名 (AI Studio の表示名に基づいた、API IDへの逆引き用)
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
-    'gemini-2.5-flash': 'Gemini 2.5 Flash',
     'gemini-3-flash-preview': 'Gemini 3 Flash',
+    'gemini-2.5-flash': 'Gemini 2.5 Flash',
     'gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',
 };
 
@@ -178,14 +178,14 @@ export async function analyzeTextStream(
     apiKey: string,
     text: string,
     systemPrompt: string,
-    modelName: string = "gemini-2.5-flash",
+    modelName: string = "gemini-3-flash",
     onChunk: (accumulated: string) => void
 ): Promise<string> {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
         model: modelName,
         systemInstruction: systemPrompt
-    });
+    }, { apiVersion: 'v1beta' });
 
     const result = await model.generateContentStream(text);
     let accumulated = "";
@@ -210,6 +210,8 @@ export async function analyzeTextStream(
         let errorType = "[ERROR]";
         if (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted")) {
             errorType = "[RESOURCE_EXHAUSTED]";
+        } else if (msg.includes("503") || msg.includes("high demand") || msg.includes("overloaded")) {
+            errorType = "[OVERLOADED]";
         } else if (msg.includes("API key") || msg.includes("401") || msg.includes("403")) {
             errorType = "[AUTH_ERROR]";
         } else if (msg.includes("Safety") || msg.includes("block") || msg.includes("candidate")) {
@@ -234,28 +236,7 @@ export async function analyzeTextStream(
 
 // 利用可能なテキスト出力モデル一覧取得
 export async function listAvailableModels(_apiKey: string): Promise<string[]> {
-    try {
-        const isExtension = typeof chrome !== 'undefined' && !!chrome?.storage?.local;
-        if (!isExtension) return [...TEXT_OUTPUT_MODELS];
-
-        // 過去のプレビュー版のIDがストレージに残存し404エラーを引き起こすのを防ぐため、
-        // TEXT_OUTPUT_MODELS に含まれる「安全と分かっているID」のみを返す
-        const result = await chrome.storage.local.get(['availableModels']);
-        if (result.availableModels && Array.isArray(result.availableModels)) {
-            // ストレージにあるモデルのうち、TEXT_OUTPUT_MODELS に定義されているものだけに絞る
-            // (RPDが0のものはバックグラウンド側で既に除外されている想定)
-            const safeModels = result.availableModels.filter((m: string) => TEXT_OUTPUT_MODELS.includes(m));
-            if (safeModels.length > 0) {
-                return safeModels;
-            }
-        }
-        
-        // ストレージにない、または安全なモデルが見つからない場合はデフォルトを返す
-        return [...TEXT_OUTPUT_MODELS];
-    } catch (err) {
-        console.error('Error fetching available models:', err);
-        return [...TEXT_OUTPUT_MODELS];
-    }
+    return [...TEXT_OUTPUT_MODELS];
 }
 
 // モデルの状態チェック（外部API呼び出しを削除）

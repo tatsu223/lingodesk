@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { TEXT_OUTPUT_MODELS, KNOWN_RPD_LIMITS, MODEL_DISPLAY_NAMES } from '../lib/gemini';
 
 const FONT_OPTIONS = [
     { value: "'Noto Sans JP', 'Segoe UI', sans-serif", label: 'Noto Sans JP (Default)' },
@@ -11,16 +12,16 @@ const FONT_OPTIONS = [
 
 function App() {
     const [apiKey, setApiKey] = useState('');
-    const [model, setModel] = useState('gemini-2.5-flash');
+    const [model, setModel] = useState('gemini-3-flash-preview');
     const [geminiDailyLimit, setGeminiDailyLimit] = useState(20);
     const [fontSize, setFontSize] = useState(14);
     const [fontFamily, setFontFamily] = useState("'Noto Sans JP', 'Segoe UI', sans-serif");
     const [displayMode, setDisplayMode] = useState<'popup' | 'window'>('popup');
-    const [availableModels] = useState<{ id: string; studioName: string; limit: number }[]>([
-        { id: 'gemini-2.5-flash', studioName: 'Gemini 2.5 Flash', limit: 20 },
-        { id: 'gemini-3-flash-preview', studioName: 'Gemini 3 Flash', limit: 20 },
-        { id: 'gemini-2.5-flash-lite', studioName: 'Gemini 2.5 Flash Lite', limit: 20 },
-    ]);
+    const availableModels = TEXT_OUTPUT_MODELS.map(id => ({
+        id,
+        studioName: MODEL_DISPLAY_NAMES[id] ?? id,
+        limit: KNOWN_RPD_LIMITS[id] ?? 20,
+    }));
     const [showApiKey, setShowApiKey] = useState(false);
     const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 

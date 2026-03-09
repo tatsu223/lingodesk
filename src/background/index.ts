@@ -166,7 +166,7 @@ chrome.storage.onChanged.addListener((changes) => {
             const newLimit = changes.geminiDailyLimit.newValue;
             if (newLimit) {
                 chrome.storage.local.get(['usageData', 'geminiModel'], (result) => {
-                    const model = result.geminiModel as string || 'gemini-2.5-flash';
+                    const model = result.geminiModel as string || 'gemini-3-flash-preview';
                     const data = (result.usageData as UsageData) || { date: new Date().toLocaleDateString('ja-JP'), count: 0, models: {} };
                     const modelCount = data.models?.[model]?.count || 0;
 
@@ -291,6 +291,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const targetTabId = sender.tab?.id || activeSourceTabId;
         handleWordStreamAnalysis(message.word, message.mode, targetTabId || null);
     }
+    if (message.type === 'ABORT_ANALYSIS') {
+        if (activeAnalysisController) {
+            activeAnalysisController.abort();
+            activeAnalysisController = null;
+        }
+    }
     return false;
 });
 
@@ -345,7 +351,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         chrome.storage.local.get(['usageData', 'geminiDailyLimit', 'geminiModel'], (result) => {
             const today = getLocalDateString();
             const data = (result.usageData as UsageData) || { date: today, count: 0, history: [], models: {} };
-            const model = result.geminiModel as string || 'gemini-2.5-flash';
+            const model = result.geminiModel as string || 'gemini-3-flash-preview';
             const modelCount = data.models?.[model]?.count || 0;
 
             sendResponse({
@@ -447,7 +453,7 @@ async function refreshUsageWithCount(isRequest: boolean, forcedCount: number | n
             data.history = data.history.filter(timestamp => timestamp > oneMinuteAgo);
 
             const { geminiModel, geminiDailyLimit } = result;
-            const modelName = forcedModelName || (geminiModel as string) || 'gemini-2.5-flash';
+            const modelName = forcedModelName || (geminiModel as string) || 'gemini-3-flash';
             if (!data.models[modelName]) data.models[modelName] = { count: 0 };
 
             // 強制的なカウント更新があれば適用 (AI Studioからの同期など)
@@ -541,13 +547,13 @@ function broadcastUsage(usage: number) {
 function getSettings(): Promise<{ apiKey: string; model: string }> {
     return new Promise((resolve) => {
         chrome.storage.local.get(['geminiApiKey', 'geminiModel'], (result) => {
-            let model = (result.geminiModel as string) || 'gemini-2.5-flash';
+            let model = (result.geminiModel as string) || 'gemini-3-flash-preview';
             
             // 安全策: 取得したモデルIDが TEXT_OUTPUT_MODELS に含まれていない場合は、
             // 404エラーを避けるためにデフォルトモデルにリセットする
             if (!TEXT_OUTPUT_MODELS.includes(model)) {
                 console.warn('[Background] Invalid model ID detected in storage, resetting to default:', model);
-                model = 'gemini-2.5-flash';
+                model = 'gemini-3-flash-preview';
             }
 
             resolve({
@@ -620,6 +626,8 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         error: null
     });
 
+    let currentAccumulated = '';
+
     try {
         const { apiKey, model } = await getSettings();
         if (!apiKey) {
@@ -645,16 +653,17 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         if (!response.ok) {
             const errData = await response.text();
             if (response.status === 429) {
-                throw new Error('[Google AI Studio] Resource exhausted (429). Please try another model.');
+                throw new Error('[RESOURCE_EXHAUSTED] [Google AI Studio] Resource exhausted (429). Please try another model.');
+            } else if (response.status === 503) {
+                throw new Error('[OVERLOADED] [Google AI Studio] Service overloaded (503). This is temporary, please try again later or use another model.');
             } else if (response.status === 401) {
-                throw new Error('APIキーが無効です。設定画面で再確認してください。');
+                throw new Error('[AUTH_ERROR] APIキーが無効です。設定画面で再確認してください。');
             }
             throw new Error(`API Error ${response.status}: ${errData}`);
         }
 
         const reader = response.body!.getReader();
         const decoder = new TextDecoder();
-        let accumulated = '';
         let buffer = '';
 
         while (true) {
@@ -673,8 +682,8 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
                         const parsed = JSON.parse(jsonStr);
                         const chunkText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (chunkText) {
-                            accumulated += chunkText;
-                            sendMsg({ type: 'ANALYSIS_CHUNK', text: accumulated });
+                            currentAccumulated += chunkText;
+                            sendMsg({ type: 'ANALYSIS_CHUNK', text: currentAccumulated });
                         }
                     } catch { /* ignore JSON error */ }
                 }
@@ -682,15 +691,28 @@ async function handleStreamAnalysis(text: string, tabId: number | null) {
         }
 
         // キャッシュに保存
-        updateCache(analysisCache, text, accumulated);
-        sendMsg({ type: 'ANALYSIS_DONE', text: accumulated });
+        updateCache(analysisCache, text, currentAccumulated);
+        await updateAnalysisState({
+            sourceText: text,
+            content: currentAccumulated,
+            isDone: true,
+            error: null
+        });
+        sendMsg({ type: 'ANALYSIS_DONE', text: currentAccumulated });
 
     } catch (error: any) {
         if (error.name === 'AbortError') {
-            console.log('[Background] Stream aborted by newer request');
+            console.log('[Background] Stream aborted by newer request or user back action');
             return;
         }
-        sendMsg({ type: 'ANALYSIS_ERROR', error: error.message || '解析中にエラーが発生しました。' });
+        const errorMsg = error.message || '解析中にエラーが発生しました。';
+        await updateAnalysisState({
+            sourceText: text,
+            content: currentAccumulated,
+            isDone: false,
+            error: errorMsg
+        });
+        sendMsg({ type: 'ANALYSIS_ERROR', error: errorMsg });
     } finally {
         if (activeAnalysisController === myController) {
             activeAnalysisController = null;

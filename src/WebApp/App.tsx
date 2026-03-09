@@ -228,7 +228,7 @@ function App() {
 
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
-    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-2.5-flash');
+    const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-3-flash-preview');
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -509,10 +509,11 @@ function App() {
                     setErrorMessage('全てのモデルの本日の使用回数が上限に達しました。明日リセットされます。');
                 }
                 fetchModels();
+            } else if (msg.includes('[OVERLOADED]')) {
+                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} は現在高負荷状態です（503）。しばらく待ってから再試行するか、別のモデルをお試しください。`);
             } else if (msg.includes('[SAFETY_ERROR]')) {
                 setErrorMessage('安全フィルターにより内容がブロックされました。入力を調整してもう一度お試しください。');
             } else {
-                // 429以外の一時的エラー（ネットワーク断、500エラー等）
                 setErrorMessage(`エラーが発生しました: ${msg.replace(/^\[.*?\]\s*/, '')}。もう一度お試しください。`);
             }
         } finally {
@@ -549,6 +550,12 @@ function App() {
             setView('main');
             setResultContent('');
             setActiveFunction(null);
+            setIsLoading(false); // 解析中ステートをリセット
+            setIsDone(false);
+            setErrorMessage('');
+            
+            // バックグラウンド側の解析を中断させるためのメッセージ送信（あれば）
+            chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => {});
         };
         window.addEventListener('popstate', handlePopState);
         return () => { window.removeEventListener('popstate', handlePopState); }
@@ -580,7 +587,11 @@ function App() {
                         <h1>LingoDesk</h1>
                     </div>
                     {localStorage.getItem('lingodesk_apikey') && (
-                        <button className="back-btn" onClick={() => setView('main')}>
+                        <button className="back-btn" onClick={() => {
+                            setView('main');
+                            setIsLoading(false);
+                            setErrorMessage('');
+                        }}>
                             <ArrowLeft size={18} /><span>戻る</span>
                         </button>
                     )}
@@ -634,6 +645,10 @@ function App() {
                             setView('main');
                             setResultContent('');
                             setActiveFunction(null);
+                            setIsLoading(false);
+                            setIsDone(false);
+                            setErrorMessage('');
+                            chrome.runtime.sendMessage({ type: 'ABORT_ANALYSIS' }).catch(() => {});
                         }}>
                             <ArrowLeft size={18} />
                         </button>
