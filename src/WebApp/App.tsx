@@ -85,7 +85,7 @@ function formatMarkdown(text: string): string {
     const lines = text.split('\n');
     const parts: string[] = [];
     let inBlockquote = false;
-    let blockquoteLines: { text: string; globalWordIdx: number }[] = [];
+    let blockquoteLines: string[] = [];
 
     for (const line of lines) {
         if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
@@ -100,7 +100,7 @@ function formatMarkdown(text: string): string {
 
         if (line.startsWith('> ')) {
             inBlockquote = true;
-            blockquoteLines.push({ text: line.slice(2), globalWordIdx: -1 });
+            blockquoteLines.push(line.slice(2));
             continue;
         } else if (inBlockquote) {
             parts.push(renderBlockquote(blockquoteLines));
@@ -228,9 +228,9 @@ const SentenceBlock = memo(({
     );
 });
 
-function renderBlockquote(lines: { text: string; globalWordIdx: number }[]): string {
-    const content = lines.map((l) => {
-        let escaped = escapeHtml(l.text);
+function renderBlockquote(lines: string[]): string {
+    const content = lines.map((text) => {
+        let escaped = escapeHtml(text);
         return `<div className="tutor-line"><span>${escaped}</span></div>`;
     }).join('');
     return `<blockquote className="result-blockquote tutor-blockquote">${content}</blockquote>`;

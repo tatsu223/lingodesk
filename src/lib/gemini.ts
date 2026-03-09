@@ -236,15 +236,3 @@ export async function listAvailableModels(_apiKey: string): Promise<string[]> {
     return [...TEXT_OUTPUT_MODELS];
 }
 
-// モデルの状態チェック（外部API呼び出しを削除）
-export async function checkModelsRPDStatus(
-    _apiKey: string,
-    models: string[]
-): Promise<Record<string, boolean>> {
-    const status: Record<string, boolean> = {};
-
-    // 全てのモデルを一旦利用可能として返す
-    // 実際の回数はストレージから別途取得される
-    models.forEach(m => status[m] = true);
-    return status;
-}
