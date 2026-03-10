@@ -697,15 +697,21 @@ function App() {
         if (!text) return;
         const to = localStorage.getItem('lingodesk_share_email') || '';
         const subject = encodeURIComponent('LingoDesk 結果');
-        const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`;
-        // awaitより前にwindow.openを呼ぶ（後だとモバイルのポップアップブロックに引っかかる）
-        window.open(url, '_blank');
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+            // モバイルはmailto:で直接メールアプリのcompose画面を開く
+            // （iOSでGmailがデフォルトに設定されていれば直接Gmail composeが開く）
+            window.location.href = `mailto:${to}?subject=${subject}`;
+        } else {
+            // デスクトップはGmail WebのURL compose画面を開く
+            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`, '_blank');
+        }
         // 本文をクリップボードにコピー（貼り付けで本文を入力できる）
         try {
             await navigator.clipboard.writeText(text);
             setCopySuccess(true);
             setTimeout(() => setCopySuccess(false), 2000);
-        } catch (_) { /* コピー失敗時もGmailは開く */ }
+        } catch (_) { /* コピー失敗時もメール画面は開く */ }
     }, [getResultText]);
 
     const handleNativeShare = useCallback(async (fn: FunctionType) => {
