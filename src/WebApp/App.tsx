@@ -821,20 +821,19 @@ function App() {
                         <h1>{functionLabel[activeFunction]}</h1>
                     </div>
                     <div className="header-right">
-                        {/* Tutor: チャンク切替 (解析中でも出す) */}
-                        {activeFunction === 'tutor' && (
-                            <button className={`mode-toggle-btn ${showChunks ? 'active' : ''}`} onClick={() => setShowChunks(!showChunks)}>
-                                ／ Chunk {showChunks ? 'ON' : 'OFF'}
-                            </button>
-                        )}
-                        {/* Words: Long/Short切替 */}
-                        {activeFunction === 'words' && isDone && (
-                            <button className={`mode-toggle-btn ${wordsMode === 'short' ? 'active' : ''}`} onClick={() => setWordsMode(wordsMode === 'long' ? 'short' : 'long')}>
-                                {wordsMode === 'long' ? '📖 Long' : '📋 Short'}
-                            </button>
-                        )}
-                        {isDone && !errorMessage && (
-                            <>
+                        {/* Row 1: Chunk ON/OFF + コピー */}
+                        <div className="header-btn-group">
+                            {activeFunction === 'tutor' && (
+                                <button className={`mode-toggle-btn ${showChunks ? 'active' : ''}`} onClick={() => setShowChunks(!showChunks)}>
+                                    ／ Chunk {showChunks ? 'ON' : 'OFF'}
+                                </button>
+                            )}
+                            {activeFunction === 'words' && isDone && (
+                                <button className={`mode-toggle-btn ${wordsMode === 'short' ? 'active' : ''}`} onClick={() => setWordsMode(wordsMode === 'long' ? 'short' : 'long')}>
+                                    {wordsMode === 'long' ? '📖 Long' : '📋 Short'}
+                                </button>
+                            )}
+                            {isDone && !errorMessage && (
                                 <button
                                     className={`mode-toggle-btn ${copySuccess ? 'active' : ''}`}
                                     onClick={() => handleCopy(activeFunction)}
@@ -843,6 +842,11 @@ function App() {
                                     {copySuccess ? <Check size={14} /> : <Copy size={14} />}
                                     <span>{copySuccess ? 'コピー済' : 'コピー'}</span>
                                 </button>
+                            )}
+                        </div>
+                        {/* Row 2: Gmail + 共有 */}
+                        {isDone && !errorMessage && (
+                            <div className="header-btn-group">
                                 <button
                                     className="mode-toggle-btn"
                                     onClick={() => handleOpenGmail(activeFunction)}
@@ -861,8 +865,9 @@ function App() {
                                         <span>共有</span>
                                     </button>
                                 )}
-                            </>
+                            </div>
                         )}
+                        {/* Row 3: 残り回数 */}
                         <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
                             <div className="usage-bar">
                                 <div className="usage-fill" style={{ width: `${usagePercent}%`, backgroundColor: usageColor }} />

@@ -108,6 +108,11 @@ body {
   gap: 12px;
 }
 
+/* Desktop: header-btn-group is transparent to flex layout */
+.header-btn-group {
+  display: contents;
+}
+
 /* ==========================================
    Usage Bar
    ========================================== */
@@ -923,6 +928,36 @@ body {
 
   .voice-select {
     max-width: 120px;
+  }
+
+  /* Result header: 3-row layout on mobile */
+  .result-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .result-header .header-right {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .header-btn-group {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* ボタンを均等幅に拡張 */
+  .header-btn-group .mode-toggle-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .result-header .usage-bar-container {
+    justify-content: center;
+    padding: 2px 0;
   }
 }
 
