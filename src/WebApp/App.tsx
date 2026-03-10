@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown, Copy, Check } from 'lucide-react';
+import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown, Copy, Check, Mail, Share2 } from 'lucide-react';
 import {
     analyzeTextStream,
     listAvailableModels,
@@ -285,6 +285,7 @@ function App() {
     // Settings
     const [apiKey, setApiKey] = useState(localStorage.getItem('lingodesk_apikey') || '');
     const [model, setModel] = useState(localStorage.getItem('lingodesk_model') || 'gemini-3-flash-preview');
+    const [shareEmail, setShareEmail] = useState(localStorage.getItem('lingodesk_share_email') || '');
     const [showApiKey, setShowApiKey] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -613,6 +614,7 @@ function App() {
         }
         localStorage.setItem('lingodesk_apikey', apiKey.trim());
         localStorage.setItem('lingodesk_model', model);
+        localStorage.setItem('lingodesk_share_email', shareEmail.trim());
         setSettingsStatus({ type: 'success', text: '✓ 設定を保存しました！' });
         setTimeout(() => {
             setSettingsStatus(null);
@@ -672,6 +674,47 @@ function App() {
     }, [preambleContent, tutorSentences, showChunks, resultContent, wordsFullResult, wordsMode]);
 
     // ==========================================
+    // シェア（Gmail / Web Share API）
+    // ==========================================
+    const getResultText = useCallback((fn: FunctionType) => {
+        if (fn === 'tutor') {
+            const lines: string[] = [];
+            if (preambleContent) lines.push(preambleContent, '');
+            for (const s of tutorSentences) {
+                lines.push(showChunks ? (s.chunkedEn || s.original) : s.original);
+                lines.push(showChunks ? (s.chunkedJa || s.natural) : s.natural);
+                lines.push('');
+            }
+            return lines.join('\n').trim();
+        }
+        return wordsMode === 'short' && wordsFullResult
+            ? shortenWordsResult(wordsFullResult)
+            : resultContent;
+    }, [preambleContent, tutorSentences, showChunks, resultContent, wordsFullResult, wordsMode]);
+
+    const handleOpenGmail = useCallback(async (fn: FunctionType) => {
+        const text = getResultText(fn);
+        if (!text) return;
+        // 本文を自動コピー
+        await navigator.clipboard.writeText(text);
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+        const to = localStorage.getItem('lingodesk_share_email') || '';
+        const subject = encodeURIComponent('LingoDesk 結果');
+        // 本文はURLに含めず空のまま開く（文字数制限回避）
+        const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`;
+        window.open(url, '_blank');
+    }, [getResultText]);
+
+    const handleNativeShare = useCallback(async (fn: FunctionType) => {
+        const text = getResultText(fn);
+        if (!text) return;
+        await navigator.share({ title: 'LingoDesk 結果', text });
+    }, [getResultText]);
+
+    const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
+
+    // ==========================================
     // 表示用ヘルパー
     // ==========================================
     const displayModel = MODEL_DISPLAY_NAMES[model] || model;
@@ -722,6 +765,17 @@ function App() {
                                         {showApiKey ? '隠す' : '表示'}
                                     </button>
                                 </div>
+                            </div>
+                            <div className="form-group">
+                                <label>送信先メールアドレス（任意）</label>
+                                <p className="form-hint">Gmailボタンを使う場合、宛先として自動入力されます。</p>
+                                <input
+                                    type="email"
+                                    value={shareEmail}
+                                    onChange={(e) => setShareEmail(e.target.value)}
+                                    placeholder="example@gmail.com"
+                                    className="api-input"
+                                />
                             </div>
                             <button className="save-btn" onClick={handleSaveSettings}>保存して開始</button>
                             {settingsStatus && (
@@ -780,14 +834,34 @@ function App() {
                             </button>
                         )}
                         {isDone && !errorMessage && (
-                            <button
-                                className={`mode-toggle-btn ${copySuccess ? 'active' : ''}`}
-                                onClick={() => handleCopy(activeFunction)}
-                                title="結果をコピー"
-                            >
-                                {copySuccess ? <Check size={14} /> : <Copy size={14} />}
-                                <span>{copySuccess ? 'コピー済' : 'コピー'}</span>
-                            </button>
+                            <>
+                                <button
+                                    className={`mode-toggle-btn ${copySuccess ? 'active' : ''}`}
+                                    onClick={() => handleCopy(activeFunction)}
+                                    title="結果をコピー"
+                                >
+                                    {copySuccess ? <Check size={14} /> : <Copy size={14} />}
+                                    <span>{copySuccess ? 'コピー済' : 'コピー'}</span>
+                                </button>
+                                <button
+                                    className="mode-toggle-btn"
+                                    onClick={() => handleOpenGmail(activeFunction)}
+                                    title="Gmailで送る"
+                                >
+                                    <Mail size={14} />
+                                    <span>Gmail</span>
+                                </button>
+                                {canNativeShare && (
+                                    <button
+                                        className="mode-toggle-btn"
+                                        onClick={() => handleNativeShare(activeFunction)}
+                                        title="共有"
+                                    >
+                                        <Share2 size={14} />
+                                        <span>共有</span>
+                                    </button>
+                                )}
+                            </>
                         )}
                         <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
                             <div className="usage-bar">
