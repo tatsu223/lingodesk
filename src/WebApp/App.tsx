@@ -717,17 +717,14 @@ function App() {
     const handleNativeShare = useCallback(async (fn: FunctionType) => {
         const text = getResultText(fn);
         if (!text) return;
-        // 本文をクリップボードにコピー
-        await navigator.clipboard.writeText(text);
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
-        // mailto: URLで開くことでTOフィールドに宛先を設定（BCCではなく）
-        const to = localStorage.getItem('lingodesk_share_email') || '';
-        const subject = encodeURIComponent('LingoDesk 結果');
-        window.location.href = `mailto:${to}?subject=${subject}`;
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: 'LingoDesk 結果', text });
+            } catch (_) { /* キャンセル時は何もしない */ }
+        }
     }, [getResultText]);
 
-    const canNativeShare = true; // 共有ボタンは常に表示（mailto: で開く）
+    const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
     // ==========================================
     // 表示用ヘルパー
