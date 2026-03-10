@@ -225,6 +225,28 @@ body {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.canvas-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clear-btn {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.clear-btn:hover {
+  background: rgba(255, 80, 80, 0.12);
+  color: #f87171;
+  border-color: #f87171;
+}
+
 .canvas-header h2 {
   font-size: 0.8rem;
   font-weight: 600;

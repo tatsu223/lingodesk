@@ -973,6 +973,10 @@ function App() {
                 <div className="canvas-card">
                     <div className="canvas-header">
                         <h2>INPUT TEXT</h2>
+                        <div className="canvas-header-right">
+                        {sourceText && (
+                            <button className="clear-btn" onClick={() => setSourceText('')}>Clear</button>
+                        )}
                         {/* モデル選択ドロップダウン */}
                         <div className="model-selector" id="model-selector-container">
                             <button className="model-selector-btn" onClick={() => {
@@ -1025,6 +1029,7 @@ function App() {
                                     )}
                                 </div>
                             )}
+                        </div>
                         </div>
                     </div>
 
