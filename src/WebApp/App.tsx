@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown } from 'lucide-react';
+import { BookOpen, Search, Sparkles, Settings, ArrowLeft, Key, ChevronDown, Copy, Check } from 'lucide-react';
 import {
     analyzeTextStream,
     listAvailableModels,
@@ -304,6 +304,9 @@ function App() {
     const [wordsMode, setWordsMode] = useState<'long' | 'short'>('long');
     const [wordsFullResult, setWordsFullResult] = useState('');
 
+    // コピー完了フィードバック
+    const [copySuccess, setCopySuccess] = useState(false);
+
     const resultRef = useRef<HTMLDivElement>(null);
 
     // 初期化とメッセージ受信
@@ -512,6 +515,8 @@ function App() {
         setActiveFunction(type);
         setView('result');
         setResultContent('');
+        setTutorSentences([]);
+        setPreambleContent('');
         setWordsFullResult('');
         setWordsMode('long');
         setShowChunks(false);
@@ -642,6 +647,31 @@ function App() {
 
 
     // ==========================================
+    // クリップボードコピー
+    // ==========================================
+    const handleCopy = useCallback(async (fn: FunctionType) => {
+        let text = '';
+        if (fn === 'tutor') {
+            const lines: string[] = [];
+            if (preambleContent) lines.push(preambleContent, '');
+            for (const s of tutorSentences) {
+                lines.push(showChunks ? (s.chunkedEn || s.original) : s.original);
+                lines.push(showChunks ? (s.chunkedJa || s.natural) : s.natural);
+                lines.push('');
+            }
+            text = lines.join('\n').trim();
+        } else {
+            text = wordsMode === 'short' && wordsFullResult
+                ? shortenWordsResult(wordsFullResult)
+                : resultContent;
+        }
+        if (!text) return;
+        await navigator.clipboard.writeText(text);
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+    }, [preambleContent, tutorSentences, showChunks, resultContent, wordsFullResult, wordsMode]);
+
+    // ==========================================
     // 表示用ヘルパー
     // ==========================================
     const displayModel = MODEL_DISPLAY_NAMES[model] || model;
@@ -747,6 +777,16 @@ function App() {
                         {activeFunction === 'words' && isDone && (
                             <button className={`mode-toggle-btn ${wordsMode === 'short' ? 'active' : ''}`} onClick={() => setWordsMode(wordsMode === 'long' ? 'short' : 'long')}>
                                 {wordsMode === 'long' ? '📖 Long' : '📋 Short'}
+                            </button>
+                        )}
+                        {isDone && !errorMessage && (
+                            <button
+                                className={`mode-toggle-btn ${copySuccess ? 'active' : ''}`}
+                                onClick={() => handleCopy(activeFunction)}
+                                title="結果をコピー"
+                            >
+                                {copySuccess ? <Check size={14} /> : <Copy size={14} />}
+                                <span>{copySuccess ? 'コピー済' : 'コピー'}</span>
                             </button>
                         )}
                         <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
