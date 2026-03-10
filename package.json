@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:webapp": "vite build --config vite.webapp.config.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },
