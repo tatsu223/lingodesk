@@ -881,7 +881,7 @@ function App() {
                     </div>
 
                     <div className="input-workspace">
-                        <textarea className="main-textarea" placeholder="ここに英単語・英文・日本文をペーストしてください。" value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
+                        <textarea className="main-textarea" placeholder="" value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
                     </div>
 
                     <div className="action-panel">
