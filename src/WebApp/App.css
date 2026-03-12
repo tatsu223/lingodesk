@@ -43,7 +43,9 @@ body {
    Container
    ========================================== */
 .lingodesk-container {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background:
@@ -113,36 +115,6 @@ body {
   display: contents;
 }
 
-/* ==========================================
-   Usage Bar
-   ========================================== */
-.usage-bar-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.usage-bar {
-  width: 70px;
-  height: 5px;
-  background: rgba(0, 0, 0, 0.08);
-  border-radius: var(--radius-badge);
-  overflow: hidden;
-}
-
-.usage-fill {
-  height: 100%;
-  border-radius: var(--radius-badge);
-  transition: width 0.5s ease, background-color 0.5s ease;
-}
-
-.usage-text {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  font-weight: 500;
-}
 
 /* ==========================================
    Buttons: Settings, Back, Toggle
@@ -241,6 +213,7 @@ body {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
+
 .clear-btn:hover {
   background: rgba(255, 80, 80, 0.12);
   color: #f87171;
@@ -303,7 +276,7 @@ body {
   right: 0;
   top: 100%;
   margin-top: 10px;
-  min-width: 320px;
+  min-width: 220px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 18px;
@@ -387,17 +360,6 @@ body {
   flex: 1;
 }
 
-.model-option-rpd {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-weight: 500;
-  margin-left: 12px;
-}
-
-.model-option.active .model-option-rpd {
-  color: var(--accent-blue);
-  opacity: 0.8;
-}
 
 /* ==========================================
    Input Area
@@ -636,6 +598,32 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.loading-display.mini {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid rgba(79, 70, 229, 0.15);
+  border-top-color: var(--accent-indigo);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner.small {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
 
 .result-main {
   flex: 1;
@@ -876,7 +864,7 @@ body {
 }
 
 .loading-display.mini {
-  padding: 20px;
+  padding: 0 4px;
   justify-content: flex-start;
 }
 
@@ -977,10 +965,6 @@ body {
     justify-content: center;
   }
 
-  .result-header .usage-bar-container {
-    justify-content: center;
-    padding: 2px 0;
-  }
 }
 
 @keyframes spin {

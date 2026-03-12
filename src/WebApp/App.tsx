@@ -5,10 +5,7 @@ import {
     listAvailableModels,
     PROMPT_WORDS_LONG,
     PROMPT_LEARNING,
-    KNOWN_RPD_LIMITS,
-    TEXT_OUTPUT_MODELS,
     MODEL_DISPLAY_NAMES,
-    getLocalDateString,
 } from '../lib/gemini';
 import './App.css';
 
@@ -22,44 +19,6 @@ interface SentenceResult {
     chunkedJa: string;
 }
 
-
-// ==========================================
-// RPD管理（モデルごと・localStorage）
-// ==========================================
-interface ModelUsage {
-    [modelId: string]: { date: string; used: number; limit: number };
-}
-
-function getModelUsage(): ModelUsage {
-    const raw = localStorage.getItem('lingodesk_model_usage');
-    if (!raw) return {};
-    try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function getModelRemainingRPD(modelId: string): number {
-    const usage = getModelUsage();
-    const today = getLocalDateString();
-    const entry = usage[modelId];
-    if (!entry || entry.date !== today) {
-        return KNOWN_RPD_LIMITS[modelId] ?? 20;
-    }
-    return Math.max(0, entry.limit - entry.used);
-}
-
-function incrementModelUsage(modelId: string) {
-    const usage = getModelUsage();
-    const today = getLocalDateString();
-    const entry = usage[modelId];
-    const limit = entry?.limit ?? KNOWN_RPD_LIMITS[modelId] ?? 20;
-
-    if (!entry || entry.date !== today) {
-        usage[modelId] = { date: today, used: 1, limit };
-    } else {
-        entry.used += 1;
-    }
-    localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-    return getModelRemainingRPD(modelId);
-}
 
 
 // ==========================================
@@ -295,9 +254,6 @@ function App() {
     const fetchingModelsRef = useRef(false);
     const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
-    // RPD
-    const [currentRPD, setCurrentRPD] = useState(getModelRemainingRPD(model));
-
     // Tutor: チャンク表示切替
     const [showChunks, setShowChunks] = useState(false);
 
@@ -340,8 +296,6 @@ function App() {
                 setErrorMessage(message.error);
                 setIsLoading(false);
                 setIsDone(true);
-            } else if (message.type === 'UPDATE_USAGE') {
-                setCurrentRPD(message.usage);
             }
         };
 
@@ -369,53 +323,26 @@ function App() {
         };
     }, [modelDropdownOpen]);
 
-    // 起動時RPD初期化：日付リセットとモデル一覧取得
+    // 起動時初期化：モデル一覧取得
     const initializeRPD = async () => {
         const key = localStorage.getItem('lingodesk_apikey');
         if (!key) return;
 
-        const today = getLocalDateString();
-        const usage = getModelUsage();
-
-        // 日付が変わっていれば全リセット
-        let needsReset = false;
-        for (const m of TEXT_OUTPUT_MODELS) {
-            if (usage[m] && usage[m].date !== today) {
-                needsReset = true;
-                break;
-            }
-        }
-        if (needsReset) {
-            localStorage.removeItem('lingodesk_model_usage');
-        }
-
-        // モデル一覧取得
         setLoadingModels(true);
         try {
             const models = await listAvailableModels(key);
             setAvailableModels(models);
 
-            // 現在のモデルのRPDを更新
-            setCurrentRPD(getModelRemainingRPD(model));
-
-            // 現在のモデルが利用可能リストにない（古いモデル名が残っている）場合のみリセット
             if (models.length > 0 && !models.includes(model)) {
                 setModel(models[0]);
                 localStorage.setItem('lingodesk_model', models[0]);
-                setCurrentRPD(getModelRemainingRPD(models[0]));
             }
         } catch (err) {
-            console.error('RPD initialization failed:', err);
+            console.error('Model initialization failed:', err);
         } finally {
             setLoadingModels(false);
         }
     };
-
-    // RPD定期更新
-    useEffect(() => {
-        const interval = setInterval(() => setCurrentRPD(getModelRemainingRPD(model)), 3000);
-        return () => clearInterval(interval);
-    }, [model]);
 
     useEffect(() => {
         if (!isDone && resultRef.current) {
@@ -434,55 +361,12 @@ function App() {
             const models = await listAvailableModels(key);
             setAvailableModels(models);
 
-            const usage = getModelUsage();
-            const today = getLocalDateString();
-
-            // 拡張機能環境の場合はストレージから使用量を同期
-            const isExtension = typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.sendMessage;
-            if (isExtension) {
-                try {
-                    const storageData = await chrome.storage.local.get(['usageData', 'knownLimits']);
-                    const data = storageData.usageData as any;
-
-                    let changed = false;
-                    for (const m of models) {
-                        if (!usage[m] || usage[m].date !== today) {
-                            const limit = (storageData.knownLimits && (storageData.knownLimits as any)[m]) || (KNOWN_RPD_LIMITS as any)[m] || 20;
-                            const used = (data && data.models && data.models[m] && data.models[m].count) || 0;
-                            usage[m] = { date: today, used, limit };
-                            changed = true;
-                        } else if (data && data.models && data.models[m]) {
-                            usage[m].used = data.models[m].count;
-                            changed = true;
-                        }
-                    }
-                    if (changed) {
-                        localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-                    }
-                } catch (e) {
-                    console.debug('Storage sync failed:', e);
-                }
-            } else {
-                // Web環境での初期化
-                let changed = false;
-                for (const m of models) {
-                    if (!usage[m] || usage[m].date !== today) {
-                        usage[m] = { date: today, used: 0, limit: (KNOWN_RPD_LIMITS as any)[m] || 20 };
-                        changed = true;
-                    }
-                }
-                if (changed) {
-                    localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-                }
-            }
-
             // 現在のモデルがリストになければ1番目にリセット
             if (models.length > 0 && !models.includes(model)) {
                 setModel(models[0]);
                 localStorage.setItem('lingodesk_model', models[0]);
             }
 
-            setCurrentRPD(getModelRemainingRPD(model));
             setErrorMessage('');
         } catch (err) {
             console.error('Failed to fetch models:', err);
@@ -565,9 +449,6 @@ function App() {
                 setWordsFullResult(finalResult);
             }
 
-            const remaining = incrementModelUsage(activeModel);
-            setCurrentRPD(remaining);
-
             setIsDone(true);
         } catch (err: any) {
             console.error('handleExecute Error:', err);
@@ -582,14 +463,7 @@ function App() {
             } else if (msg.includes('parse stream')) {
                 setErrorMessage('データの受信中に問題が発生しました。インターネット接続を確認し、もう一度お試しください。');
             } else if (isQuotaError) {
-                console.log('Real 429 detected, marking model as exhausted.');
-                const usage = getModelUsage();
-                const today = getLocalDateString();
-                const limit = KNOWN_RPD_LIMITS[activeModel] || 20;
-                usage[activeModel] = { date: today, used: limit, limit };
-                localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-                setCurrentRPD(0);
-                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} の本日の使用回数（${limit}回）が上限に達しました。別のモデルをドロップダウンから選択してください。`);
+                setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} の使用回数が上限に達しました。別のモデルをドロップダウンから選択してください。`);
             } else if (isOverloaded) {
                 setErrorMessage(`${MODEL_DISPLAY_NAMES[activeModel] || activeModel} は現在混雑しています。しばらく待ってから再試行するか、別のモデルをお試しください。`);
             } else if (msg.includes('[SAFETY_ERROR]')) {
@@ -649,31 +523,6 @@ function App() {
 
 
     // ==========================================
-    // クリップボードコピー
-    // ==========================================
-    const handleCopy = useCallback(async (fn: FunctionType) => {
-        let text = '';
-        if (fn === 'tutor') {
-            const lines: string[] = [];
-            if (preambleContent) lines.push(preambleContent, '');
-            for (const s of tutorSentences) {
-                lines.push(showChunks ? (s.chunkedEn || s.original) : s.original);
-                lines.push(showChunks ? (s.chunkedJa || s.natural) : s.natural);
-                lines.push('');
-            }
-            text = lines.join('\n').trim();
-        } else {
-            text = wordsMode === 'short' && wordsFullResult
-                ? shortenWordsResult(wordsFullResult)
-                : resultContent;
-        }
-        if (!text) return;
-        await navigator.clipboard.writeText(text);
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
-    }, [preambleContent, tutorSentences, showChunks, resultContent, wordsFullResult, wordsMode]);
-
-    // ==========================================
     // シェア（Gmail / Web Share API）
     // ==========================================
     const getResultText = useCallback((fn: FunctionType) => {
@@ -692,31 +541,64 @@ function App() {
             : resultContent;
     }, [preambleContent, tutorSentences, showChunks, resultContent, wordsFullResult, wordsMode]);
 
+    // ==========================================
+    // クリップボードコピー（リッチHTML）
+    // ==========================================
+    const copyRichText = useCallback(async (fn: FunctionType) => {
+        const resultEl = resultRef.current;
+        if (!resultEl) return false;
+        const html = resultEl.innerHTML;
+        const plainText = getResultText(fn);
+        if (!plainText) return false;
+        try {
+            const normalizedHtml = html
+                .replace(/<blockquote[^>]*>/g, '<div style="margin:0;padding:0;border:none;">')
+                .replace(/<\/blockquote>/g, '</div>');
+            const wrappedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif; line-height: 1.7;">${normalizedHtml}</div>`;
+            const htmlBlob = new Blob([wrappedHtml], { type: 'text/html' });
+            const textBlob = new Blob([plainText], { type: 'text/plain' });
+            await navigator.clipboard.write([
+                new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob })
+            ]);
+            return true;
+        } catch {
+            await navigator.clipboard.writeText(plainText);
+            return true;
+        }
+    }, [getResultText]);
+
+    const handleMemo = useCallback(async (fn: FunctionType) => {
+        const text = getResultText(fn);
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopySuccess(true);
+            setTimeout(() => setCopySuccess(false), 2000);
+        } catch { /* ignore */ }
+    }, [getResultText]);
+
     const handleOpenGmail = useCallback(async (fn: FunctionType) => {
         const text = getResultText(fn);
         if (!text) return;
         const to = localStorage.getItem('lingodesk_share_email') || '';
         const subject = encodeURIComponent('LingoDesk 結果');
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        if (isMobile) {
-            // モバイルはmailto:で直接メールアプリのcompose画面を開く
-            // （iOSでGmailがデフォルトに設定されていれば直接Gmail composeが開く）
-            window.location.href = `mailto:${to}?subject=${subject}`;
-        } else {
-            // デスクトップはGmail WebのURL compose画面を開く
-            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`, '_blank');
-        }
-        // 本文をクリップボードにコピー（貼り付けで本文を入力できる）
         try {
-            await navigator.clipboard.writeText(text);
+            await copyRichText(fn);
             setCopySuccess(true);
             setTimeout(() => setCopySuccess(false), 2000);
         } catch (_) { /* コピー失敗時もメール画面は開く */ }
-    }, [getResultText]);
+        if (isMobile) {
+            window.location.href = `mailto:${to}?subject=${subject}`;
+        } else {
+            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`, '_blank');
+        }
+    }, [getResultText, copyRichText]);
 
     const handleNativeShare = useCallback(async (fn: FunctionType) => {
         const text = getResultText(fn);
         if (!text) return;
+        try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
         if (navigator.share) {
             try {
                 await navigator.share({ title: 'LingoDesk 結果', text });
@@ -730,13 +612,10 @@ function App() {
     // 表示用ヘルパー
     // ==========================================
     const displayModel = MODEL_DISPLAY_NAMES[model] || model;
-    const modelLimit = KNOWN_RPD_LIMITS[model] || 20;
-    const usagePercent = Math.min(100, Math.max(0, (currentRPD / modelLimit) * 100));
-    const usageColor = usagePercent > 60 ? '#10b981' : usagePercent > 20 ? '#f59e0b' : '#ef4444';
 
     const functionLabel: Record<FunctionType, string> = {
         words: 'English Words',
-        tutor: 'English Tutor',
+        tutor: 'Quick Read',
     };
 
     // ==========================================
@@ -831,6 +710,12 @@ function App() {
                         </button>
                         <div className="logo-icon small"><Sparkles size={18} /></div>
                         <h1>{functionLabel[activeFunction]}</h1>
+                        {isLoading && (
+                            <div className="loading-display mini" style={{ marginLeft: '12px' }}>
+                                <div className="spinner small" />
+                                <span>解析中...</span>
+                            </div>
+                        )}
                     </div>
                     <div className="header-right">
                         {/* Row 1: Chunk ON/OFF + コピー */}
@@ -848,11 +733,11 @@ function App() {
                             {isDone && !errorMessage && (
                                 <button
                                     className={`mode-toggle-btn ${copySuccess ? 'active' : ''}`}
-                                    onClick={() => handleCopy(activeFunction)}
-                                    title="結果をコピー"
+                                    onClick={() => handleMemo(activeFunction)}
+                                    title="テキストをメモにコピー"
                                 >
                                     {copySuccess ? <Check size={14} /> : <Copy size={14} />}
-                                    <span>{copySuccess ? 'コピー済' : 'コピー'}</span>
+                                    <span>{copySuccess ? 'コピー済' : 'メモ'}</span>
                                 </button>
                             )}
                         </div>
@@ -879,13 +764,6 @@ function App() {
                                 )}
                             </div>
                         )}
-                        {/* Row 3: 残り回数 */}
-                        <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
-                            <div className="usage-bar">
-                                <div className="usage-fill" style={{ width: `${usagePercent}%`, backgroundColor: usageColor }} />
-                            </div>
-                            <span className="usage-text">残り {currentRPD}回</span>
-                        </div>
                     </div>
                 </header>
 
@@ -914,12 +792,6 @@ function App() {
                                     showChunks={showChunks}
                                 />
                             ))}
-                            {!isDone && (
-                                <div className="loading-display mini">
-                                    <div className="spinner small" />
-                                    <span>解析中...</span>
-                                </div>
-                            )}
                         </div>
                     ) : displayContent ? (
                         <div className="result-content" dangerouslySetInnerHTML={{
@@ -931,12 +803,7 @@ function App() {
                             <div className="error-text">結果を取得できませんでした。モデルを変更するか、再試行してください。</div>
                             <button className="retry-btn" onClick={() => handleExecute(activeFunction)}>再試行</button>
                         </div>
-                    ) : (
-                        <div className="loading-display">
-                            <div className="spinner" />
-                            <span>解析中...</span>
-                        </div>
-                    )}
+                    ) : null}
                 </main>
 
                 <footer className="lingodesk-footer">
@@ -957,12 +824,6 @@ function App() {
                     <h1>LingoDesk</h1>
                 </div>
                 <div className="header-right">
-                    <div className="usage-bar-container" title={`${displayModel}: 残り ${currentRPD}回`}>
-                        <div className="usage-bar">
-                            <div className="usage-fill" style={{ width: `${usagePercent}%`, backgroundColor: usageColor }} />
-                        </div>
-                        <span className="usage-text">残り {currentRPD}回</span>
-                    </div>
                     <button className="settings-btn" onClick={() => setView('settings')} title="設定">
                         <Settings size={20} />
                     </button>
@@ -974,67 +835,53 @@ function App() {
                     <div className="canvas-header">
                         <h2>INPUT TEXT</h2>
                         <div className="canvas-header-right">
-                        {sourceText && (
-                            <button className="clear-btn" onClick={() => setSourceText('')}>Clear</button>
-                        )}
-                        {/* モデル選択ドロップダウン */}
-                        <div className="model-selector" id="model-selector-container">
-                            <button className="model-selector-btn" onClick={() => {
-                                setModelDropdownOpen(!modelDropdownOpen);
-                                if (!modelDropdownOpen) fetchModels();
-                            }}>
-                                <span className="model-name">{displayModel}</span>
-                                <ChevronDown size={14} className={modelDropdownOpen ? 'rotate-180' : ''} />
-                            </button>
-                            {modelDropdownOpen && (
-                                <div className="model-dropdown">
-                                    <div className="model-dropdown-header">
-                                        <span>Select AI Model</span>
-                                    </div>
-                                    {loadingModels ? (
-                                        <div className="model-dropdown-loading">更新中...</div>
-                                    ) : (
-                                        availableModels.map(m => {
-                                            const remaining = getModelRemainingRPD(m);
-                                            const limit = KNOWN_RPD_LIMITS[m] ?? 20;
-                                            const isSelected = m === model;
-                                            const isDisabled = remaining <= 0;
-
-                                            return (
-                                                <button
-                                                    key={m}
-                                                    className={`model-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        // 残り0でも選択を許可（Late Binding方式: 実際に叩いてみるまで制限を確定させない）
-                                                        // ローカルカウンターが0の場合はリセット（実際のAPI側はまだ使える可能性があるため）
-                                                        if (remaining <= 0) {
-                                                            const usage = getModelUsage();
-                                                            const today = getLocalDateString();
-                                                            const lim = KNOWN_RPD_LIMITS[m] ?? 20;
-                                                            usage[m] = { date: today, used: 0, limit: lim };
-                                                            localStorage.setItem('lingodesk_model_usage', JSON.stringify(usage));
-                                                        }
-                                                        setModel(m);
-                                                        localStorage.setItem('lingodesk_model', m);
-                                                        setCurrentRPD(remaining <= 0 ? (KNOWN_RPD_LIMITS[m] ?? 20) : remaining);
-                                                        setModelDropdownOpen(false);
-                                                    }}
-                                                >
-                                                    <span className="model-option-name">{MODEL_DISPLAY_NAMES[m] || m}</span>
-                                                    <span className="model-option-rpd">残り {remaining}/{limit}</span>
-                                                </button>
-                                            );
-                                        })
-                                    )}
-                                </div>
+                            {sourceText && (
+                                <button className="clear-btn" onClick={() => setSourceText('')}>Clear</button>
                             )}
-                        </div>
+                            {/* モデル選択ドロップダウン */}
+                            <div className="model-selector" id="model-selector-container">
+                                <button className="model-selector-btn" onClick={() => {
+                                    setModelDropdownOpen(!modelDropdownOpen);
+                                    if (!modelDropdownOpen) fetchModels();
+                                }}>
+                                    <span className="model-name">{displayModel}</span>
+                                    <ChevronDown size={14} className={modelDropdownOpen ? 'rotate-180' : ''} />
+                                </button>
+                                {modelDropdownOpen && (
+                                    <div className="model-dropdown">
+                                        <div className="model-dropdown-header">
+                                            <span>Select AI Model</span>
+                                        </div>
+                                        {loadingModels ? (
+                                            <div className="model-dropdown-loading">更新中...</div>
+                                        ) : (
+                                            availableModels.map(m => {
+                                                const isSelected = m === model;
+
+                                                return (
+                                                    <button
+                                                        key={m}
+                                                        className={`model-option ${isSelected ? 'active' : ''}`}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setModel(m);
+                                                            localStorage.setItem('lingodesk_model', m);
+                                                            setModelDropdownOpen(false);
+                                                        }}
+                                                    >
+                                                        <span className="model-option-name">{MODEL_DISPLAY_NAMES[m] || m}</span>
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
                     <div className="input-workspace">
-                        <textarea className="main-textarea" placeholder="ここに学習・解析したい英文をコピー＆ペーストしてください..." value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
+                        <textarea className="main-textarea" placeholder="ここに英単語・英文・日本文をペーストしてください。" value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
                     </div>
 
                     <div className="action-panel">
@@ -1046,7 +893,7 @@ function App() {
                             </button>
                             <button className="action-btn tutor-btn" onClick={() => handleExecute('tutor')} disabled={!sourceText.trim() || isLoading}>
                                 <BookOpen size={20} />
-                                <span>English Tutor<br /><small>英文解析</small></span>
+                                <span>Quick Read<br /><small>英文解析</small></span>
                             </button>
                         </div>
                     </div>
