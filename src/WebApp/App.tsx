@@ -4,7 +4,7 @@ import {
     analyzeTextStream,
     listAvailableModels,
     PROMPT_WORDS_LONG,
-    PROMPT_LEARNING,
+    buildTutorPrompt,
     MODEL_DISPLAY_NAMES,
 } from '../lib/gemini';
 import './App.css';
@@ -33,8 +33,8 @@ function escapeHtml(text: string): string {
 function applyInline(html: string): string {
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    html = html.replace(/`(.+?)`/g, '<code class="inline-code">$1</code>');
     html = html.replace(/"([^"]+)"/g, '<span class="phrase">"$1"</span>');
+    html = html.replace(/`(.+?)`/g, "<code class='inline-code'>$1</code>");
     return html;
 }
 
@@ -45,6 +45,7 @@ function formatMarkdown(text: string): string {
     const parts: string[] = [];
     let inBlockquote = false;
     let blockquoteLines: string[] = [];
+    let inWordBlock = false;
 
     for (const line of lines) {
         if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
@@ -53,7 +54,6 @@ function formatMarkdown(text: string): string {
                 blockquoteLines = [];
                 inBlockquote = false;
             }
-            parts.push('<hr class="result-hr">');
             continue;
         }
 
@@ -81,6 +81,9 @@ function formatMarkdown(text: string): string {
         }
 
         if (line.startsWith('## ')) {
+            if (inWordBlock) parts.push('</div>');
+            parts.push('<div class="word-block">');
+            inWordBlock = true;
             parts.push(`<h2 class="result-h2">${applyInline(escapeHtml(line.slice(3)))}</h2>`);
             continue;
         }
@@ -91,6 +94,10 @@ function formatMarkdown(text: string): string {
             continue;
         }
 
+        if (line.match(/^[-•]\s/)) {
+            parts.push(`<div class="bullet-item"><span class="bullet-dot">•</span><span>${applyInline(escapeHtml(line.slice(2)))}</span></div>`);
+            continue;
+        }
         if (line.startsWith('・')) {
             const content = escapeHtml(line.slice(1));
             parts.push(`<div class="bullet-item"><span class="bullet-dot">•</span><span>${applyInline(content)}</span></div>`);
@@ -121,6 +128,7 @@ function formatMarkdown(text: string): string {
     if (inBlockquote && blockquoteLines.length > 0) {
         parts.push(renderBlockquote(blockquoteLines));
     }
+    if (inWordBlock) parts.push('</div>');
 
     return parts.join('');
 }
@@ -254,6 +262,9 @@ function App() {
     const fetchingModelsRef = useRef(false);
     const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
+    // CEFR level
+    const [cefrLevel, setCefrLevel] = useState(localStorage.getItem('lingodesk_cefr') || 'B1');
+
     // Tutor: チャンク表示切替
     const [showChunks, setShowChunks] = useState(false);
 
@@ -344,12 +355,6 @@ function App() {
         }
     };
 
-    useEffect(() => {
-        if (!isDone && resultRef.current) {
-            resultRef.current.scrollTop = resultRef.current.scrollHeight;
-        }
-    }, [tutorSentences, preambleContent, resultContent, isDone]);
-
     // APIキー保存時とメイン画面表示時にモデル取得
     const fetchModels = useCallback(async () => {
         const key = localStorage.getItem('lingodesk_apikey');
@@ -386,8 +391,15 @@ function App() {
     // ==========================================
     // API呼び出し
     // ==========================================
+    const MAX_INPUT_LENGTH = 30000;
+
     const handleExecute = async (type: FunctionType) => {
         if (!sourceText.trim()) return;
+        if (sourceText.length > MAX_INPUT_LENGTH) {
+            setErrorMessage(`テキストが長すぎます（最大 ${MAX_INPUT_LENGTH.toLocaleString()} 文字）。短くしてから再試行してください。`);
+            setView('result');
+            return;
+        }
 
         memoizedSentences.clear();
 
@@ -410,7 +422,7 @@ function App() {
         setErrorMessage('');
         const promptMap: Record<FunctionType, string> = {
             words: PROMPT_WORDS_LONG,
-            tutor: PROMPT_LEARNING,
+            tutor: buildTutorPrompt(cefrLevel),
         };
 
         try {
@@ -484,6 +496,10 @@ function App() {
     const handleSaveSettings = () => {
         if (!apiKey.trim()) {
             setSettingsStatus({ type: 'error', text: 'APIキーを入力してください' });
+            return;
+        }
+        if (!apiKey.trim().startsWith('AIza') || apiKey.trim().length < 20) {
+            setSettingsStatus({ type: 'error', text: 'APIキーの形式が正しくありません（AIza... で始まる文字列を入力してください）' });
             return;
         }
         localStorage.setItem('lingodesk_apikey', apiKey.trim());
@@ -614,9 +630,11 @@ function App() {
     const displayModel = MODEL_DISPLAY_NAMES[model] || model;
 
     const functionLabel: Record<FunctionType, string> = {
-        words: 'English Words',
+        words: 'Words',
         tutor: 'Quick Read',
     };
+
+    const CEFR_OPTIONS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
     // ==========================================
     // 設定画面
@@ -838,6 +856,21 @@ function App() {
                             {sourceText && (
                                 <button className="clear-btn" onClick={() => setSourceText('')}>Clear</button>
                             )}
+                            {/* CEFRレベル選択 */}
+                            <div className="cefr-selector-wrap">
+                                <select
+                                    className="cefr-selector"
+                                    value={cefrLevel}
+                                    onChange={(e) => {
+                                        setCefrLevel(e.target.value);
+                                        localStorage.setItem('lingodesk_cefr', e.target.value);
+                                    }}
+                                >
+                                    {CEFR_OPTIONS.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                            </div>
                             {/* モデル選択ドロップダウン */}
                             <div className="model-selector" id="model-selector-container">
                                 <button className="model-selector-btn" onClick={() => {
@@ -889,7 +922,7 @@ function App() {
                         <div className="button-group">
                             <button className="action-btn words-btn" onClick={() => handleExecute('words')} disabled={!sourceText.trim() || isLoading}>
                                 <Search size={20} />
-                                <span>English Words<br /><small>単語と熟語の解説</small></span>
+                                <span>Words<br /><small>単語と熟語の解説</small></span>
                             </button>
                             <button className="action-btn tutor-btn" onClick={() => handleExecute('tutor')} disabled={!sourceText.trim() || isLoading}>
                                 <BookOpen size={20} />

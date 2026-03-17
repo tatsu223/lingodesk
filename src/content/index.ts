@@ -352,7 +352,6 @@
           blockquoteLines = [];
           inBlockquote = false;
         }
-        parts.push('<hr class="get-hr">');
         continue;
       }
 

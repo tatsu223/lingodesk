@@ -473,7 +473,7 @@ function applyInline(html: string): string {
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
     html = html.replace(/`(.+?)`/g, '<code class="inline-code">$1</code>');
     html = html.replace(/"([^"]+)"/g, '<span class="phrase">"$1"</span>');
-    html = html.replace(/／/g, '<span class="chunk-slash">／</span>');
+    html = html.replace(/[／/]/g, '<span class="chunk-slash">／</span>');
     return html;
 }
 
